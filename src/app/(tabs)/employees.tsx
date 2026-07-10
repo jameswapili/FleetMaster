@@ -34,35 +34,52 @@ function initials(name: string) {
   return name.split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase();
 }
 
+const PAGE_SIZE = 25;
+
 export default function EmployeesScreen() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [search, setSearch] = useState('');
   const [error, setError] = useState('');
+  const [page, setPage] = useState(0);
+  const [hasMore, setHasMore] = useState(true);
 
-  const fetchEmployees = useCallback(async () => {
+  const fetchEmployees = useCallback(async (pageNum: number, append: boolean) => {
     setError('');
+    const from = pageNum * PAGE_SIZE;
+    const to = from + PAGE_SIZE - 1;
     const { data, error } = await supabase
       .from('employees')
       .select('*')
-      .order('full_name', { ascending: true });
+      .order('full_name', { ascending: true })
+      .range(from, to);
     if (error) {
       setError(error.message);
     } else {
-      setEmployees(data as Employee[]);
+      const rows = data as Employee[];
+      setEmployees(prev => (append ? [...prev, ...rows] : rows));
+      setHasMore(rows.length === PAGE_SIZE);
     }
     setLoading(false);
+    setLoadingMore(false);
     setRefreshing(false);
   }, []);
 
-  useEffect(() => {
-    fetchEmployees();
-  }, [fetchEmployees]);
+  useEffect(() => { fetchEmployees(0, false); }, [fetchEmployees]);
 
   const onRefresh = () => {
     setRefreshing(true);
-    fetchEmployees();
+    setPage(0);
+    fetchEmployees(0, false);
+  };
+
+  const loadMore = () => {
+    const nextPage = page + 1;
+    setPage(nextPage);
+    setLoadingMore(true);
+    fetchEmployees(nextPage, true);
   };
 
   const filtered = employees.filter(e =>
@@ -152,6 +169,12 @@ export default function EmployeesScreen() {
           </View>
         ))
       )}
+
+      {hasMore && !search && (
+        <TouchableOpacity style={styles.loadMoreBtn} onPress={loadMore} disabled={loadingMore}>
+          {loadingMore ? <ActivityIndicator color={colors.primary} /> : <Text style={styles.loadMoreText}>Load More</Text>}
+        </TouchableOpacity>
+      )}
     </ScrollView>
   );
 }
@@ -183,4 +206,6 @@ const styles = StyleSheet.create({
   detailRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   detailText: { fontSize: 12, color: colors.mutedForeground },
   hiredText: { fontSize: 11, color: colors.mutedForeground, marginTop: 2 },
+  loadMoreBtn: { backgroundColor: colors.card, borderRadius: radius, padding: 14, alignItems: 'center', marginTop: 4 },
+  loadMoreText: { color: colors.primary, fontWeight: '600', fontSize: 13 },
 });

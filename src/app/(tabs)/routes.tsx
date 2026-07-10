@@ -1,6 +1,6 @@
-import { ArrowRight, MapPin } from 'lucide-react-native';
+import { ArrowRight, MapPin, Package, Plus, X } from 'lucide-react-native';
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, FlatList, Modal, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { supabase } from '../../../lib/supabase';
 import { colors, radius } from '../constants/theme';
 
@@ -10,15 +10,40 @@ type Route = {
   origin: string;
   destination: string;
   distance_km: number | null;
-  status: 'planned' | 'active' | 'completed';
-  truck_code: string | null;
+  status: 'planned' | 'in_transit' | 'delivered' | 'completed' | 'cancelled';
+  cargo_type: string | null;
+  cargo_class: string | null;
+  cargo_weight_kg: number | null;
+  customer_cost: number;
+  fuel_amount_liters: number;
+  fuel_cost: number;
+  driver_allowance: number;
+  other_expenses: number;
+  total_expenses: number;
+  profit_loss: number;
+  driver: { full_name: string } | null;
+  truck: { truck_code: string } | null;
 };
+
+type Option = { id: string; label: string; sub?: string };
 
 const statusMap = {
   planned: { bg: '#f1f5f9', color: colors.mutedForeground, label: 'Planned' },
-  active: { bg: '#eff6ff', color: colors.info, label: 'Active' },
+  in_transit: { bg: '#eff6ff', color: colors.info, label: 'In Transit' },
+  delivered: { bg: '#fff7ed', color: colors.accent, label: 'Delivered' },
   completed: { bg: '#f0fdf4', color: colors.success, label: 'Completed' },
+  cancelled: { bg: '#fef2f2', color: colors.destructive, label: 'Cancelled' },
 };
+
+const cargoTypes = [
+  { value: 'loose', label: 'Loose Cargo' },
+  { value: 'container_20ft', label: '20ft Container' },
+  { value: 'container_40ft', label: '40ft Container' },
+];
+const cargoClasses = [
+  { value: 'normal', label: 'Normal' },
+  { value: 'abnormal_wide_load', label: 'Abnormal / Wide Load' },
+];
 
 export default function RoutesScreen() {
   const [routes, setRoutes] = useState<Route[]>([]);
@@ -26,59 +51,286 @@ export default function RoutesScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
 
+  const [formOpen, setFormOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState('');
+
+  const [routeName, setRouteName] = useState('');
+  const [origin, setOrigin] = useState('');
+  const [destination, setDestination] = useState('');
+  const [distanceKm, setDistanceKm] = useState('');
+  const [cargoType, setCargoType] = useState('loose');
+  const [cargoClass, setCargoClass] = useState('normal');
+  const [cargoWeight, setCargoWeight] = useState('');
+  const [customerCost, setCustomerCost] = useState('');
+  const [driverAllowance, setDriverAllowance] = useState('');
+  const [otherExpenses, setOtherExpenses] = useState('');
+
+  const [driverId, setDriverId] = useState<string | null>(null);
+  const [driverLabel, setDriverLabel] = useState('');
+  const [truckId, setTruckId] = useState<string | null>(null);
+  const [truckLabel, setTruckLabel] = useState('');
+
+  const [pickerOpen, setPickerOpen] = useState<'driver' | 'truck' | null>(null);
+  const [pickerOptions, setPickerOptions] = useState<Option[]>([]);
+  const [pickerSearch, setPickerSearch] = useState('');
+
   const fetchRoutes = useCallback(async () => {
     setError('');
-    const { data, error } = await supabase.from('routes').select('*').order('created_at', { ascending: false });
+    const { data, error } = await supabase
+      .from('routes')
+      .select('*, driver:drivers(full_name), truck:trucks(truck_code)')
+      .order('created_at', { ascending: false });
     if (error) setError(error.message);
-    else setRoutes(data as Route[]);
+    else setRoutes(data as unknown as Route[]);
     setLoading(false);
     setRefreshing(false);
   }, []);
 
   useEffect(() => { fetchRoutes(); }, [fetchRoutes]);
-
   const onRefresh = () => { setRefreshing(true); fetchRoutes(); };
+
+  const resetForm = () => {
+    setRouteName(''); setOrigin(''); setDestination(''); setDistanceKm('');
+    setCargoType('loose'); setCargoClass('normal'); setCargoWeight('');
+    setCustomerCost(''); setDriverAllowance(''); setOtherExpenses('');
+    setDriverId(null); setDriverLabel(''); setTruckId(null); setTruckLabel('');
+    setFormError('');
+  };
+
+  const openPicker = async (type: 'driver' | 'truck') => {
+    setPickerOpen(type);
+    setPickerSearch('');
+    if (type === 'driver') {
+      const { data } = await supabase.from('drivers').select('id, full_name, driver_code');
+      setPickerOptions((data || []).map((d: any) => ({ id: d.id, label: d.full_name, sub: d.driver_code })));
+    } else {
+      const { data } = await supabase.from('trucks').select('id, truck_code, model');
+      setPickerOptions((data || []).map((t: any) => ({ id: t.id, label: t.truck_code, sub: t.model })));
+    }
+  };
+
+  const selectOption = (opt: Option) => {
+    if (pickerOpen === 'driver') { setDriverId(opt.id); setDriverLabel(opt.label); }
+    else { setTruckId(opt.id); setTruckLabel(opt.label); }
+    setPickerOpen(null);
+  };
+
+  const handleCreateRoute = async () => {
+    setFormError('');
+    if (!routeName || !origin || !destination || !driverId || !truckId) {
+      setFormError('Route name, origin, destination, driver, and truck are required');
+      return;
+    }
+    setSaving(true);
+    const { error } = await supabase.from('routes').insert({
+      route_name: routeName,
+      origin,
+      destination,
+      distance_km: distanceKm ? Number(distanceKm) : null,
+      driver_id: driverId,
+      truck_id: truckId,
+      cargo_type: cargoType,
+      cargo_class: cargoClass,
+      cargo_weight_kg: cargoWeight ? Number(cargoWeight) : null,
+      customer_cost: customerCost ? Number(customerCost) : 0,
+      driver_allowance: driverAllowance ? Number(driverAllowance) : 0,
+      other_expenses: otherExpenses ? Number(otherExpenses) : 0,
+      status: 'planned',
+    });
+    setSaving(false);
+    if (error) {
+      setFormError(error.message);
+      return;
+    }
+    setFormOpen(false);
+    resetForm();
+    fetchRoutes();
+  };
+
+  const filteredPickerOptions = pickerOptions.filter(o =>
+    o.label.toLowerCase().includes(pickerSearch.toLowerCase())
+  );
 
   if (loading) {
     return <View style={styles.centered}><ActivityIndicator color={colors.primary} size="large" /></View>;
   }
 
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-    >
-      {error ? <Text style={styles.errorText}>{error}</Text> : null}
+    <>
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+      >
+        {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
-      {routes.length === 0 ? (
-        <Text style={styles.emptyText}>No routes found.</Text>
-      ) : (
-        routes.map((r) => {
-          const s = statusMap[r.status];
-          return (
-            <View key={r.id} style={styles.card}>
-              <View style={styles.rowBetween}>
-                <Text style={styles.name}>{r.route_name}</Text>
-                <View style={[styles.badge, { backgroundColor: s.bg }]}>
-                  <Text style={[styles.badgeText, { color: s.color }]}>{s.label}</Text>
+        <TouchableOpacity style={styles.newRouteBtn} onPress={() => setFormOpen(true)}>
+          <Plus size={16} color="#fff" />
+          <Text style={styles.newRouteText}>New Route</Text>
+        </TouchableOpacity>
+
+        {routes.length === 0 ? (
+          <Text style={styles.emptyText}>No routes found.</Text>
+        ) : (
+          routes.map((r) => {
+            const s = statusMap[r.status];
+            return (
+              <View key={r.id} style={styles.card}>
+                <View style={styles.rowBetween}>
+                  <Text style={styles.name}>{r.route_name}</Text>
+                  <View style={[styles.badge, { backgroundColor: s.bg }]}>
+                    <Text style={[styles.badgeText, { color: s.color }]}>{s.label}</Text>
+                  </View>
+                </View>
+                <View style={styles.pathRow}>
+                  <MapPin size={12} color={colors.mutedForeground} />
+                  <Text style={styles.pathText}>{r.origin}</Text>
+                  <ArrowRight size={12} color={colors.mutedForeground} />
+                  <Text style={styles.pathText}>{r.destination}</Text>
+                </View>
+                <View style={styles.details}>
+                  {r.distance_km != null && <Text style={styles.detailText}>{r.distance_km} km</Text>}
+                  {r.driver?.full_name && <Text style={styles.detailText}>Driver: {r.driver.full_name}</Text>}
+                  {r.truck?.truck_code && <Text style={styles.detailText}>Truck: {r.truck.truck_code}</Text>}
+                </View>
+                {r.cargo_type && (
+                  <View style={styles.cargoRow}>
+                    <Package size={12} color={colors.mutedForeground} />
+                    <Text style={styles.detailText}>
+                      {cargoTypes.find(c => c.value === r.cargo_type)?.label || r.cargo_type}
+                      {r.cargo_weight_kg ? ` · ${r.cargo_weight_kg} kg` : ''}
+                      {r.cargo_class === 'abnormal_wide_load' ? ' · Wide Load' : ''}
+                    </Text>
+                  </View>
+                )}
+                <View style={styles.financials}>
+                  <View style={styles.finRow}><Text style={styles.finLabel}>Customer Cost</Text><Text style={styles.finValue}>TZS {Number(r.customer_cost).toLocaleString()}</Text></View>
+                  <View style={styles.finRow}><Text style={styles.finLabel}>Fuel</Text><Text style={styles.finValue}>{r.fuel_amount_liters}L · TZS {Number(r.fuel_cost).toLocaleString()}</Text></View>
+                  <View style={styles.finRow}><Text style={styles.finLabel}>Driver Allowance</Text><Text style={styles.finValue}>TZS {Number(r.driver_allowance).toLocaleString()}</Text></View>
+                  <View style={styles.finRow}><Text style={styles.finLabel}>Other Expenses</Text><Text style={styles.finValue}>TZS {Number(r.other_expenses).toLocaleString()}</Text></View>
+                  <View style={[styles.finRow, styles.finRowTotal]}>
+                    <Text style={styles.finLabelTotal}>Profit / Loss</Text>
+                    <Text style={[styles.finValueTotal, { color: Number(r.profit_loss) >= 0 ? colors.success : colors.destructive }]}>
+                      TZS {Number(r.profit_loss).toLocaleString()}
+                    </Text>
+                  </View>
                 </View>
               </View>
-              <View style={styles.pathRow}>
-                <MapPin size={12} color={colors.mutedForeground} />
-                <Text style={styles.pathText}>{r.origin}</Text>
-                <ArrowRight size={12} color={colors.mutedForeground} />
-                <Text style={styles.pathText}>{r.destination}</Text>
-              </View>
-              <View style={styles.details}>
-                {r.distance_km && <Text style={styles.detailText}>{r.distance_km} km</Text>}
-                {r.truck_code && <Text style={styles.detailText}>Truck: {r.truck_code}</Text>}
-              </View>
+            );
+          })
+        )}
+      </ScrollView>
+
+      <Modal visible={formOpen} animationType="slide" transparent onRequestClose={() => setFormOpen(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.formSheet}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>New Route</Text>
+              <TouchableOpacity onPress={() => { setFormOpen(false); resetForm(); }}>
+                <X size={20} color={colors.mutedForeground} />
+              </TouchableOpacity>
             </View>
-          );
-        })
-      )}
-    </ScrollView>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {formError ? <Text style={styles.errorText}>{formError}</Text> : null}
+
+              <Text style={styles.fieldLabel}>Route Name</Text>
+              <TextInput style={styles.input} value={routeName} onChangeText={setRouteName} placeholder="e.g. DSM to Mwanza" />
+
+              <Text style={styles.fieldLabel}>Origin</Text>
+              <TextInput style={styles.input} value={origin} onChangeText={setOrigin} placeholder="e.g. Dar es Salaam Port" />
+
+              <Text style={styles.fieldLabel}>Destination</Text>
+              <TextInput style={styles.input} value={destination} onChangeText={setDestination} placeholder="e.g. Mwanza Terminal" />
+
+              <Text style={styles.fieldLabel}>Distance (km)</Text>
+              <TextInput style={styles.input} value={distanceKm} onChangeText={setDistanceKm} keyboardType="numeric" placeholder="e.g. 620" />
+
+              <Text style={styles.fieldLabel}>Driver</Text>
+              <TouchableOpacity style={styles.pickerBtn} onPress={() => openPicker('driver')}>
+                <Text style={driverLabel ? styles.pickerText : styles.pickerPlaceholder}>{driverLabel || 'Select driver'}</Text>
+              </TouchableOpacity>
+
+              <Text style={styles.fieldLabel}>Truck</Text>
+              <TouchableOpacity style={styles.pickerBtn} onPress={() => openPicker('truck')}>
+                <Text style={truckLabel ? styles.pickerText : styles.pickerPlaceholder}>{truckLabel || 'Select truck'}</Text>
+              </TouchableOpacity>
+
+              <Text style={styles.fieldLabel}>Cargo Type</Text>
+              <View style={styles.segmentRow}>
+                {cargoTypes.map(c => (
+                  <TouchableOpacity
+                    key={c.value}
+                    style={[styles.segment, cargoType === c.value && styles.segmentActive]}
+                    onPress={() => setCargoType(c.value)}
+                  >
+                    <Text style={[styles.segmentText, cargoType === c.value && styles.segmentTextActive]}>{c.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <Text style={styles.fieldLabel}>Cargo Class</Text>
+              <View style={styles.segmentRow}>
+                {cargoClasses.map(c => (
+                  <TouchableOpacity
+                    key={c.value}
+                    style={[styles.segment, cargoClass === c.value && styles.segmentActive]}
+                    onPress={() => setCargoClass(c.value)}
+                  >
+                    <Text style={[styles.segmentText, cargoClass === c.value && styles.segmentTextActive]}>{c.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <Text style={styles.fieldLabel}>Cargo Weight (kg)</Text>
+              <TextInput style={styles.input} value={cargoWeight} onChangeText={setCargoWeight} keyboardType="numeric" placeholder="e.g. 12000" />
+
+              <Text style={styles.fieldLabel}>Customer Cost (TZS)</Text>
+              <TextInput style={styles.input} value={customerCost} onChangeText={setCustomerCost} keyboardType="numeric" placeholder="Amount charged to customer" />
+
+              <Text style={styles.fieldLabel}>Driver Allowance (TZS)</Text>
+              <TextInput style={styles.input} value={driverAllowance} onChangeText={setDriverAllowance} keyboardType="numeric" placeholder="Route allowance" />
+
+              <Text style={styles.fieldLabel}>Other Expenses (TZS)</Text>
+              <TextInput style={styles.input} value={otherExpenses} onChangeText={setOtherExpenses} keyboardType="numeric" placeholder="Tolls, permits, etc." />
+
+              <Text style={styles.helperNote}>
+                Fuel amount and cost will populate automatically once fuel is logged against this route in Fuel Management.
+              </Text>
+
+              <TouchableOpacity style={styles.submitBtn} onPress={handleCreateRoute} disabled={saving}>
+                {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitText}>Create Route</Text>}
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={pickerOpen !== null} animationType="slide" transparent onRequestClose={() => setPickerOpen(null)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalSheet}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>{pickerOpen === 'driver' ? 'Select Driver' : 'Select Truck'}</Text>
+              <TouchableOpacity onPress={() => setPickerOpen(null)}>
+                <X size={20} color={colors.mutedForeground} />
+              </TouchableOpacity>
+            </View>
+            <TextInput style={styles.modalSearch} placeholder="Search..." value={pickerSearch} onChangeText={setPickerSearch} />
+            <FlatList
+              data={filteredPickerOptions}
+              keyExtractor={(o) => o.id}
+              renderItem={({ item }) => (
+                <TouchableOpacity style={styles.driverOption} onPress={() => selectOption(item)}>
+                  <Text style={styles.driverOptionName}>{item.label}</Text>
+                  {item.sub ? <Text style={styles.driverOptionCode}>{item.sub}</Text> : null}
+                </TouchableOpacity>
+              )}
+              ListEmptyComponent={<Text style={styles.emptyText}>No results.</Text>}
+            />
+          </View>
+        </View>
+      </Modal>
+    </>
   );
 }
 
@@ -87,6 +339,8 @@ const styles = StyleSheet.create({
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.background },
   errorText: { color: colors.destructive, marginBottom: 12, textAlign: 'center' },
   emptyText: { textAlign: 'center', color: colors.mutedForeground, marginTop: 20 },
+  newRouteBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: colors.primary, borderRadius: radius, padding: 14, marginBottom: 16 },
+  newRouteText: { color: '#fff', fontWeight: '700', fontSize: 14 },
   card: { backgroundColor: colors.card, borderRadius: radius, padding: 14, marginBottom: 10 },
   rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   name: { fontSize: 14, fontWeight: '700', color: colors.foreground },
@@ -94,6 +348,36 @@ const styles = StyleSheet.create({
   badgeText: { fontSize: 10, fontWeight: '700' },
   pathRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8 },
   pathText: { fontSize: 12, color: colors.foreground },
-  details: { marginTop: 8, paddingTop: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, flexDirection: 'row', gap: 16 },
+  details: { marginTop: 8, paddingTop: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
   detailText: { fontSize: 12, color: colors.mutedForeground },
+  cargoRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6 },
+  financials: { marginTop: 10, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, gap: 4 },
+  finRow: { flexDirection: 'row', justifyContent: 'space-between' },
+  finLabel: { fontSize: 11, color: colors.mutedForeground },
+  finValue: { fontSize: 11, color: colors.foreground, fontWeight: '600' },
+  finRowTotal: { marginTop: 4, paddingTop: 6, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
+  finLabelTotal: { fontSize: 12, color: colors.foreground, fontWeight: '700' },
+  finValueTotal: { fontSize: 13, fontWeight: '700' },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
+  modalSheet: { backgroundColor: colors.card, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 16, height: '70%' },
+  formSheet: { backgroundColor: colors.card, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 16, height: '90%' },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  modalTitle: { fontSize: 16, fontWeight: '700', color: colors.foreground },
+  modalSearch: { backgroundColor: colors.background, borderRadius: radius, padding: 12, marginBottom: 10, fontSize: 14 },
+  driverOption: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 14, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+  driverOptionName: { fontSize: 14, fontWeight: '600', color: colors.foreground },
+  driverOptionCode: { fontSize: 12, color: colors.mutedForeground },
+  fieldLabel: { fontSize: 12, fontWeight: '600', color: colors.foreground, marginBottom: 6, marginTop: 12 },
+  input: { backgroundColor: colors.background, borderRadius: radius, padding: 12, fontSize: 14, color: colors.foreground },
+  pickerBtn: { backgroundColor: colors.background, borderRadius: radius, padding: 12 },
+  pickerText: { fontSize: 14, color: colors.foreground },
+  pickerPlaceholder: { fontSize: 14, color: colors.mutedForeground },
+  segmentRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  segment: { paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8, backgroundColor: colors.background },
+  segmentActive: { backgroundColor: colors.primary },
+  segmentText: { fontSize: 12, color: colors.mutedForeground },
+  segmentTextActive: { color: '#fff', fontWeight: '600' },
+  helperNote: { fontSize: 11, color: colors.mutedForeground, marginTop: 16, fontStyle: 'italic' },
+  submitBtn: { backgroundColor: colors.primary, borderRadius: radius, padding: 16, alignItems: 'center', marginTop: 20, marginBottom: 30 },
+  submitText: { color: '#fff', fontWeight: '700', fontSize: 14 },
 });

@@ -16,6 +16,8 @@ type Driver = {
   assigned_truck: string | null;
 };
 
+const PAGE_SIZE = 25;
+
 function StatusBadge({ status }: { status: Driver['status'] }) {
   const map = {
     on_duty: { bg: '#f0fdf4', color: colors.success, label: 'On Duty' },
@@ -37,22 +39,39 @@ function initials(name: string) {
 export default function DriversScreen() {
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [search, setSearch] = useState('');
   const [error, setError] = useState('');
+  const [page, setPage] = useState(0);
+  const [hasMore, setHasMore] = useState(true);
 
-  const fetchDrivers = useCallback(async () => {
+  const fetchDrivers = useCallback(async (pageNum: number, append: boolean) => {
     setError('');
-    const { data, error } = await supabase.from('drivers').select('*').order('full_name');
-    if (error) setError(error.message);
-    else setDrivers(data as Driver[]);
+    const from = pageNum * PAGE_SIZE;
+    const to = from + PAGE_SIZE - 1;
+    const { data, error } = await supabase.from('drivers').select('*').order('full_name').range(from, to);
+    if (error) {
+      setError(error.message);
+    } else {
+      const rows = data as Driver[];
+      setDrivers(prev => (append ? [...prev, ...rows] : rows));
+      setHasMore(rows.length === PAGE_SIZE);
+    }
     setLoading(false);
+    setLoadingMore(false);
     setRefreshing(false);
   }, []);
 
-  useEffect(() => { fetchDrivers(); }, [fetchDrivers]);
+  useEffect(() => { fetchDrivers(0, false); }, [fetchDrivers]);
 
-  const onRefresh = () => { setRefreshing(true); fetchDrivers(); };
+  const onRefresh = () => { setRefreshing(true); setPage(0); fetchDrivers(0, false); };
+  const loadMore = () => {
+    const nextPage = page + 1;
+    setPage(nextPage);
+    setLoadingMore(true);
+    fetchDrivers(nextPage, true);
+  };
 
   const filtered = drivers.filter(d =>
     d.full_name.toLowerCase().includes(search.toLowerCase()) ||
@@ -121,6 +140,12 @@ export default function DriversScreen() {
           </View>
         ))
       )}
+
+      {hasMore && !search && (
+        <TouchableOpacity style={styles.loadMoreBtn} onPress={loadMore} disabled={loadingMore}>
+          {loadingMore ? <ActivityIndicator color={colors.primary} /> : <Text style={styles.loadMoreText}>Load More</Text>}
+        </TouchableOpacity>
+      )}
     </ScrollView>
   );
 }
@@ -150,4 +175,6 @@ const styles = StyleSheet.create({
   details: { marginTop: 10, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, gap: 4 },
   detailRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   detailText: { fontSize: 12, color: colors.mutedForeground },
+  loadMoreBtn: { backgroundColor: colors.card, borderRadius: radius, padding: 14, alignItems: 'center', marginTop: 4 },
+  loadMoreText: { color: colors.primary, fontWeight: '600', fontSize: 13 },
 });

@@ -13,24 +13,16 @@ export default function ReportsScreen() {
 
   const fetchStats = useCallback(async () => {
     setError('');
-    const [trucks, drivers, employees, fuel, maint] = await Promise.all([
-      supabase.from('trucks').select('*', { count: 'exact', head: true }),
-      supabase.from('drivers').select('*', { count: 'exact', head: true }),
-      supabase.from('employees').select('*', { count: 'exact', head: true }),
-      supabase.from('fuel_logs').select('cost'),
-      supabase.from('maintenance_jobs').select('*', { count: 'exact', head: true }).eq('status', 'pending'),
-    ]);
-    const anyError = trucks.error || drivers.error || employees.error || fuel.error || maint.error;
-    if (anyError) {
-      setError(anyError.message);
+    const { data, error } = await supabase.from('fleet_stats').select('*').single();
+    if (error) {
+      setError(error.message);
     } else {
-      const fuelCost = (fuel.data || []).reduce((sum, f: any) => sum + Number(f.cost), 0);
       setStats({
-        trucks: trucks.count || 0,
-        drivers: drivers.count || 0,
-        employees: employees.count || 0,
-        fuelCost,
-        pendingMaintenance: maint.count || 0,
+        trucks: data.total_trucks,
+        drivers: data.total_drivers,
+        employees: data.total_employees,
+        fuelCost: Number(data.total_fuel_cost),
+        pendingMaintenance: data.pending_maintenance,
       });
     }
     setLoading(false);
