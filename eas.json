@@ -1,18 +1,33 @@
 {
   "cli": {
-    "version": ">= 19.1.0",
+    "version": ">= 5.9.0",
     "appVersionSource": "remote"
   },
   "build": {
     "development": {
       "developmentClient": true,
-      "distribution": "internal"
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_SUPABASE_URL": "https://bwzeiblratuadyyqzgxe.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_xlHI93k2JRL2IYkubYExuQ_N4j1WH53"
+      }
     },
     "preview": {
-      "distribution": "internal"
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_SUPABASE_URL": "https://bwzeiblratuadyyqzgxe.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_xlHI93k2JRL2IYkubYExuQ_N4j1WH53"
+      }
     },
     "production": {
-      "autoIncrement": true
+      "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_SUPABASE_URL": "https://bwzeiblratuadyyqzgxe.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_xlHI93k2JRL2IYkubYExuQ_N4j1WH53"
+      }
     }
   },
   "submit": {

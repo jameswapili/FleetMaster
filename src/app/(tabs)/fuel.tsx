@@ -7,6 +7,7 @@ import { colors, radius } from '../constants/theme';
 type FuelLog = {
   id: string;
   truck_code: string;
+  plate_number: string;
   liters: number;
   price_per_liter: number;
   cost: number;
@@ -194,7 +195,7 @@ export default function FuelScreen() {
               <View style={styles.row}>
                 <View style={styles.iconWrap}><FuelIcon size={16} color={colors.accent} /></View>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.name}>{l.truck_code}</Text>
+                  <Text style={styles.name}>{l.truck_code}- {l.plate_number}</Text>
                   <Text style={styles.code}>
                     {l.route?.client_name ? `${l.route.client_name} · ` : ''}{l.station || 'Unknown station'} · {l.logged_date}
                   </Text>
