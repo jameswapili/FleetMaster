@@ -236,58 +236,81 @@ const formatCurrency = (value: number | null | undefined): string => {
             return (
               <View key={r.id} style={styles.card}>
                 <View style={styles.rowBetween}>
-                  <Text style={styles.name}>{r.client_name}</Text>
+                  <Text style={[styles.name, { color: Number(r.profit_loss) >= 0 ? colors.success : colors.destructive }]}>
+                  {r.client_name}
+                  </Text>
                   <View style={[styles.badge, { backgroundColor: s.bg }]}>
                     <Text style={[styles.badgeText, { color: s.color }]}>{s.label}</Text>
                   </View>
-                </View>
-                <View style={styles.pathRow}>
-                  <MapPin size={12} color={colors.mutedForeground} />
-                  <Text style={styles.pathText}>{r.origin}</Text>
-                  <ArrowRight size={12} color={colors.mutedForeground} />
-                  <Text style={styles.pathText}>{r.destination}</Text>
-                </View>
-                <View style={styles.details}>
-                  {r.distance_km != null && <Text style={styles.detailText}>{r.distance_km} km</Text>}
-                  {r.driver?.full_name && <Text style={styles.detailText}>Driver: {r.driver.full_name}</Text>}
-                  {r.truck?.truck_code && <Text style={styles.detailText}>Truck: {r.truck.truck_code}</Text>}
-                </View>
-                {r.cargo_description ? <Text style={styles.detailText}>{r.cargo_description}</Text> : null}
-                {(r.cargo_type || r.cargo_package) && (
-                  <View style={styles.cargoRow}>
-                    <Package size={12} color={colors.mutedForeground} />
-                    <Text style={styles.detailText}>
-                      {cargoTypes.find(c => c.value === r.cargo_type)?.label || ''}
-                      {r.cargo_package ? ` · ${cargoPackages.find(c => c.value === r.cargo_package)?.label}` : ''}
-                      {r.cargo_weight_kg ? ` · ${r.cargo_weight_kg} kg` : ''}
-                      {r.cargo_class === 'abnormal_wide_load' ? ' · Abnormal Load' : ''}
-                    </Text>
                   </View>
-                )}
-                {r.cargo_type_description ? <Text style={styles.finNote}>{r.cargo_type_description}</Text> : null}
+                <View style={styles.pathRow}>
+                 <MapPin size={12} color={Number(r.profit_loss) >= 0 ? colors.success : colors.destructive} />
+                <Text style={[styles.pathText, { color: Number(r.profit_loss) >= 0 ? colors.success : colors.destructive }]}>
+                {r.origin}
+                </Text>
+                <ArrowRight size={12} color={Number(r.profit_loss) >= 0 ? colors.success : colors.destructive} />
+                <Text style={[styles.pathText, { color: Number(r.profit_loss) >= 0 ? colors.success : colors.destructive }]}>
+                {r.destination}
+     </Text>
+    {r.distance_km != null && (
+    <Text style={[styles.pathText, { color: Number(r.profit_loss) >= 0 ? colors.success : colors.destructive }]}>
+      · {r.distance_km} km
+     </Text>
+    )}
+    </View>
+{/* Line 1: Cargo Description */}
+{r.cargo_description ? <Text style={styles.detailText}>{r.cargo_description}</Text> : null}
+
+{/* Line 2: Cargo Type, Package, Weight, Class */}
+{(r.cargo_type || r.cargo_package) && (
+  <View style={styles.cargoRow}>
+    <Package size={12} color={colors.mutedForeground} />
+    <Text style={styles.detailText}>
+      {cargoTypes.find(c => c.value === r.cargo_type)?.label || ''}
+      {r.cargo_package ? ` · ${cargoPackages.find(c => c.value === r.cargo_package)?.label}` : ''}
+      {r.cargo_weight_kg ? ` · ${r.cargo_weight_kg} kg` : ''}
+      {r.cargo_class === 'abnormal_wide_load' ? ' · Abnormal Load' : ''}
+    </Text>
+  </View>
+)}
+
+{/* Line 3: Cargo Type Description (new) */}
+{r.cargo_type_description ? (
+  <Text style={[styles.detailText, { marginTop: 4 }]}>
+    {r.cargo_type_description}
+  </Text>
+) : null}
+
+{/* Line 4: Driver and Truck Details */}
+<View style={styles.details}>
+  {r.driver?.full_name && <Text style={styles.detailText}>Driver: {r.driver.full_name}</Text>}
+  {r.truck?.truck_code && <Text style={styles.detailText}>Truck: {r.truck.truck_code}</Text>}
+</View>
+                
+                
                <View style={styles.financials}>
+
   {/* Route Price - moved down to group with Total Expenses */}
   
-  <View style={styles.finRow}>
-    <Text style={styles.finLabel}>Fuel</Text>
-    <Text style={styles.finValue}>{r.fuel_amount_liters}L · TZS {formatCurrency(r.fuel_cost)}</Text>
-  </View>
+ <View style={styles.finRow}>
+  <Text style={[styles.finLabel, { color:'#3a3232a2', fontWeight: '700' }]}>Fuel</Text>
+  <Text style={[styles.finValue, { color:'#3a3232a2' }]}>TZS {formatCurrency(r.fuel_cost)}</Text>
+</View>
 
   <View style={styles.finRow}>
-    <Text style={styles.finLabel}>Driver Allowance</Text>
-    <Text style={styles.finValue}>TZS {formatCurrency(r.driver_allowance)}</Text>
-  </View>
+  <Text style={[styles.finLabel, { color: '#3a3232a2', fontWeight: '700' }]}>Driver Allowance</Text>
+  <Text style={[styles.finValue, { color:'#3a3232a2' }]}>TZS {formatCurrency(r.driver_allowance)}</Text>
+</View>
 
   <View style={styles.finRow}>
-    <Text style={styles.finLabel}>Road Tolls & Permits</Text>
-    <Text style={styles.finValue}>TZS {formatCurrency(r.road_tolls_permits)}</Text>
-  </View>
-  {r.road_tolls_permits_description ? <Text style={styles.finNote}>{r.road_tolls_permits_description}</Text> : null}
+  <Text style={[styles.finLabel, { color: '#3a3232a2', fontWeight: '700' }]}>Road Tolls & Permits</Text>
+  <Text style={[styles.finValue, { color: '#3a3232a2' }]}>TZS {formatCurrency(r.road_tolls_permits)}</Text>
+</View>
 
   <View style={styles.finRow}>
-    <Text style={styles.finLabel}>Other Expenses</Text>
-    <Text style={styles.finValue}>TZS {formatCurrency(r.other_expenses)}</Text>
-  </View>
+  <Text style={[styles.finLabel, { color: '#3a3232a2', fontWeight: '700' }]}>Other Expenses</Text>
+  <Text style={[styles.finValue, { color: '#3a3232a2'}]}>TZS {formatCurrency(r.other_expenses)}</Text>
+</View>
   {r.other_expenses_description ? <Text style={styles.finNote}>{r.other_expenses_description}</Text> : null}
 
   {/* Grouped: Route Price & Total Expenses together */}
@@ -483,7 +506,7 @@ const styles = StyleSheet.create({
   financials: { marginTop: 10, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, gap: 4 },
   finRow: { flexDirection: 'row', justifyContent: 'space-between' },
   finLabel: { fontSize: 11, color: colors.mutedForeground },
-  finValue: { fontSize: 11, color: colors.foreground, fontWeight: '600' },
+  finValue: { fontSize: 11, color: colors.foreground, fontWeight: '700' },
   finNote: { fontSize: 10, color: colors.mutedForeground, fontStyle: 'italic', marginBottom: 2 },
   finRowTotalExpenses: { marginTop: 2, paddingTop: 4, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
   finLabelSubtotal: { fontSize: 12, color: colors.foreground, fontWeight: '700', textTransform: 'uppercase' },
