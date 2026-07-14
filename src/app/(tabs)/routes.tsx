@@ -94,6 +94,14 @@ export default function RoutesScreen() {
   const [pickerSearch, setPickerSearch] = useState('');
   const [truckLookupError, setTruckLookupError] = useState('');
 
+const formatCurrency = (value: number | null | undefined): string => {
+  if (value == null) return '0.00';
+  return Number(value).toLocaleString('en-US', { 
+    minimumFractionDigits: 2, 
+    maximumFractionDigits: 2 
+  });
+};
+
   const fetchRoutes = useCallback(async () => {
     setError('');
     const { data, error } = await supabase
@@ -257,21 +265,52 @@ export default function RoutesScreen() {
                   </View>
                 )}
                 {r.cargo_type_description ? <Text style={styles.finNote}>{r.cargo_type_description}</Text> : null}
-                <View style={styles.financials}>
-                  <View style={styles.finRow}><Text style={styles.finLabel}>Route Price</Text><Text style={styles.finValue}>TZS {Number(r.route_price).toLocaleString()}</Text></View>
-                  <View style={styles.finRow}><Text style={styles.finLabel}>Fuel</Text><Text style={styles.finValue}>{r.fuel_amount_liters}L · TZS {Number(r.fuel_cost).toLocaleString()}</Text></View>
-                  <View style={styles.finRow}><Text style={styles.finLabel}>Driver Allowance</Text><Text style={styles.finValue}>TZS {Number(r.driver_allowance).toLocaleString()}</Text></View>
-                  <View style={styles.finRow}><Text style={styles.finLabel}>Road Tolls & Permits</Text><Text style={styles.finValue}>TZS {Number(r.road_tolls_permits).toLocaleString()}</Text></View>
-                  {r.road_tolls_permits_description ? <Text style={styles.finNote}>{r.road_tolls_permits_description}</Text> : null}
-                  <View style={styles.finRow}><Text style={styles.finLabel}>Other Expenses</Text><Text style={styles.finValue}>TZS {Number(r.other_expenses).toLocaleString()}</Text></View>
-                  {r.other_expenses_description ? <Text style={styles.finNote}>{r.other_expenses_description}</Text> : null}
-                  <View style={[styles.finRow, styles.finRowTotal]}>
-                    <Text style={styles.finLabelTotal}>Profit / Loss</Text>
-                    <Text style={[styles.finValueTotal, { color: Number(r.profit_loss) >= 0 ? colors.success : colors.destructive }]}>
-                      TZS {Number(r.profit_loss).toLocaleString()}
-                    </Text>
-                  </View>
-                </View>
+               <View style={styles.financials}>
+  {/* Route Price - moved down to group with Total Expenses */}
+  
+  <View style={styles.finRow}>
+    <Text style={styles.finLabel}>Fuel</Text>
+    <Text style={styles.finValue}>{r.fuel_amount_liters}L · TZS {formatCurrency(r.fuel_cost)}</Text>
+  </View>
+
+  <View style={styles.finRow}>
+    <Text style={styles.finLabel}>Driver Allowance</Text>
+    <Text style={styles.finValue}>TZS {formatCurrency(r.driver_allowance)}</Text>
+  </View>
+
+  <View style={styles.finRow}>
+    <Text style={styles.finLabel}>Road Tolls & Permits</Text>
+    <Text style={styles.finValue}>TZS {formatCurrency(r.road_tolls_permits)}</Text>
+  </View>
+  {r.road_tolls_permits_description ? <Text style={styles.finNote}>{r.road_tolls_permits_description}</Text> : null}
+
+  <View style={styles.finRow}>
+    <Text style={styles.finLabel}>Other Expenses</Text>
+    <Text style={styles.finValue}>TZS {formatCurrency(r.other_expenses)}</Text>
+  </View>
+  {r.other_expenses_description ? <Text style={styles.finNote}>{r.other_expenses_description}</Text> : null}
+
+  {/* Grouped: Route Price & Total Expenses together */}
+  <View style={[styles.finRow, styles.finRowTotalExpenses]}>
+  <Text style={[styles.finLabelSubtotal, { color: colors.foreground }]}>Route Price</Text>
+  <Text style={[styles.finValueSubtotal, { color: colors.foreground }]}>TZS {formatCurrency(r.route_price)}</Text>
+</View>
+
+  <View style={[styles.finRow, styles.finRowTotalExpenses]}>
+    <Text style={[styles.finLabelSubtotal, { color: colors.destructive }]}>Total Expenses</Text>
+    <Text style={styles.finValueSubtotal}>TZS {formatCurrency(r.total_expenses)}</Text>
+  </View>
+
+  {/* Profit / Loss */}
+<View style={[styles.finRow, styles.finRowTotal]}>
+  <Text style={[styles.finLabelTotal, { color: Number(r.profit_loss) >= 0 ? colors.success : colors.destructive }]}>
+    {Number(r.profit_loss) >= 0 ? 'PROFIT' : 'LOSS'}
+  </Text>
+  <Text style={[styles.finValueTotal, { color: Number(r.profit_loss) >= 0 ? colors.success : colors.destructive }]}>
+    TZS {formatCurrency(r.profit_loss)}
+  </Text>
+</View>
+</View>
               </View>
             );
           })
@@ -424,7 +463,14 @@ const styles = StyleSheet.create({
   newRouteText: { color: '#fff', fontWeight: '700', fontSize: 14 },
   actionRow: { flexDirection: 'row', gap: 10, marginBottom: 16 },
   refreshBtn: { width: 48, height: 48, borderRadius: radius, backgroundColor: colors.card, alignItems: 'center', justifyContent: 'center' },
-  card: { backgroundColor: colors.card, borderRadius: radius, padding: 14, marginBottom: 10 },
+  card: { 
+  backgroundColor: colors.card, 
+  borderRadius: radius, 
+  padding: 14, 
+  marginBottom: 10, 
+  borderBottomWidth: 3,           // <-- BOLD LINE THICKNESS
+  borderBottomColor: colors.foreground  // <-- USE YOUR THEME COLOR
+},
   rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   name: { fontSize: 14, fontWeight: '700', color: colors.foreground },
   badge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
@@ -439,9 +485,12 @@ const styles = StyleSheet.create({
   finLabel: { fontSize: 11, color: colors.mutedForeground },
   finValue: { fontSize: 11, color: colors.foreground, fontWeight: '600' },
   finNote: { fontSize: 10, color: colors.mutedForeground, fontStyle: 'italic', marginBottom: 2 },
+  finRowTotalExpenses: { marginTop: 2, paddingTop: 4, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
+  finLabelSubtotal: { fontSize: 12, color: colors.foreground, fontWeight: '700', textTransform: 'uppercase' },
+  finValueSubtotal: { fontSize: 12, color: colors.destructive, fontWeight: '700' },
   finRowTotal: { marginTop: 4, paddingTop: 6, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
-  finLabelTotal: { fontSize: 12, color: colors.foreground, fontWeight: '700' },
-  finValueTotal: { fontSize: 13, fontWeight: '700' },
+  finLabelTotal: { fontSize: 12, color: colors.foreground, fontWeight: '700', textTransform: 'uppercase' },
+  finValueTotal: { fontSize: 12, fontWeight: '700' },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
   modalSheet: { backgroundColor: colors.card, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 16, height: '70%' },
   formSheet: { backgroundColor: colors.card, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 16, height: '90%' },

@@ -58,6 +58,12 @@ export default function DriversScreen() {
   const [status, setStatus] = useState<typeof statusOptions[number]>('off_duty');
   const [editingDriverId, setEditingDriverId] = useState<string | null>(null);
 
+  const [alertDriver, setAlertDriver] = useState<Driver | null>(null);
+  const [alertType, setAlertType] = useState<'accident' | 'breakdown' | 'emergency' | null>(null);
+  const [alertNote, setAlertNote] = useState('');
+  const [alertSaving, setAlertSaving] = useState(false);
+  const [alertError, setAlertError] = useState('');
+
   const fetchDrivers = useCallback(async (pageNum: number, append: boolean) => {
     setError('');
     const from = pageNum * PAGE_SIZE;
@@ -167,7 +173,53 @@ export default function DriversScreen() {
     fetchDrivers(0, false);
   };
 
- const handleDeleteDriver = (d: Driver) => {
+ const openAlert = (d: Driver, type: 'accident' | 'breakdown' | 'emergency') => {
+    setAlertDriver(d);
+    setAlertType(type);
+    setAlertNote('');
+    setAlertError('');
+  };
+
+  const submitAlert = async () => {
+    if (!alertDriver || !alertType) return;
+    setAlertSaving(true);
+    setAlertError('');
+
+    // Find this driver's current active route, if any
+    const { data: activeRoute } = await supabase
+      .from('routes')
+      .select('id')
+      .eq('driver_id', alertDriver.id)
+      .in('status', ['planned', 'in_transit'])
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const { data: truck } = await supabase
+      .from('trucks')
+      .select('id')
+      .eq('driver_id', alertDriver.id)
+      .maybeSingle();
+
+    const { error } = await supabase.from('route_alerts').insert({
+      route_id: activeRoute?.id || null,
+      driver_id: alertDriver.id,
+      truck_id: truck?.id || null,
+      alert_type: alertType,
+      message: alertNote || null,
+    });
+
+    setAlertSaving(false);
+    if (error) {
+      setAlertError(error.message);
+      return;
+    }
+    setAlertDriver(null);
+    setAlertType(null);
+    setAlertNote('');
+  };
+
+  const handleDeleteDriver = (d: Driver) => {
     const doDelete = async () => {
       const { error } = await supabase.from('drivers').delete().eq('id', d.id);
       if (error) {
