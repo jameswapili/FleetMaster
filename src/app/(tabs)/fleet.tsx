@@ -8,7 +8,7 @@ type Truck = {
   id: string;
   truck_code: string;
   model: string;
-  plate_number: string;
+  model_number: string;
   status: 'active' | 'idle' | 'maintenance' | 'breakdown';
   mileage_km: number;
   last_service_date: string | null;
@@ -57,7 +57,7 @@ export default function FleetScreen() {
   const [formError, setFormError] = useState('');
   const [truckCode, setTruckCode] = useState('');
   const [model, setModel] = useState('');
-  const [plateNumber, setPlateNumber] = useState('');
+  const [modelNumber, setmodelNumber] = useState('');
   const [status, setStatus] = useState<typeof statusOptions[number]>('idle');
   const [mileageKm, setMileageKm] = useState('');
 
@@ -122,22 +122,22 @@ export default function FleetScreen() {
   };
 
   const resetForm = () => {
-    setTruckCode(''); setModel(''); setPlateNumber('');
+    setTruckCode(''); setModel(''); setmodelNumber('');
     setStatus('idle'); setMileageKm('');
     setFormError('');
   };
 
   const handleCreateTruck = async () => {
     setFormError('');
-    if (!truckCode || !model || !plateNumber) {
-      setFormError('Truck code, Model, and Plate number are required');
+    if (!truckCode || !model || !modelNumber) {
+      setFormError('Truck code, Model, and Model number are required');
       return;
     }
     setSaving(true);
     const { error } = await supabase.from('trucks').insert({
       truck_code: truckCode,
       model,
-      plate_number: plateNumber,
+      model_number: modelNumber,
       status,
       mileage_km: mileageKm ? Number(mileageKm) : 0,
     });
@@ -155,7 +155,7 @@ export default function FleetScreen() {
 
   const filtered = trucks.filter(t =>
     t.truck_code.toLowerCase().includes(search.toLowerCase()) ||
-    t.plate_number.toLowerCase().includes(search.toLowerCase())
+    t.model_number.toLowerCase().includes(search.toLowerCase())
   );
 
   const activeCount = trucks.filter(t => t.status === 'active').length;
@@ -211,8 +211,8 @@ export default function FleetScreen() {
               <View key={t.id} style={styles.card}>
                 <View style={styles.row}>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.name}>{t.truck_code} — {t.plate_number}</Text>
-                    <Text style={styles.code}>{t.model}</Text>
+                    <Text style={styles.name}>{t.model} — {t.truck_code}</Text>
+                    <Text style={styles.code}>{t.model_number}</Text>
                   </View>
                   <View style={[styles.badge, { backgroundColor: s.bg }]}>
                     <Text style={[styles.badgeText, { color: s.color }]}>{s.label}</Text>
@@ -318,15 +318,15 @@ export default function FleetScreen() {
             <ScrollView showsVerticalScrollIndicator={false}>
               {formError ? <Text style={styles.errorText}>{formError}</Text> : null}
 
-              <Text style={styles.fieldLabel}>Truck Make</Text>
-              <TextInput style={styles.input} value={truckCode} onChangeText={setTruckCode} placeholder="e.g. SCANIA" autoCapitalize="characters" />
+              <Text style={styles.fieldLabel}>Plate Number</Text>
+              <TextInput style={styles.input} value={truckCode} onChangeText={setTruckCode} placeholder="e.g. T 300 DRH" autoCapitalize="characters" />
               
               <Text style={styles.fieldLabel}>Model</Text>
-              <TextInput style={styles.input} value={model} onChangeText={setModel} placeholder="e.g. R420" />
+              <TextInput style={styles.input} value={model} onChangeText={setModel} placeholder="e.g. SCANIA" />
 
 
-              <Text style={styles.fieldLabel}>Plate Number</Text>
-              <TextInput style={styles.input} value={plateNumber} onChangeText={setPlateNumber} placeholder="e.g. T 300 DRH" autoCapitalize="characters" />
+              <Text style={styles.fieldLabel}>Model Number</Text>
+              <TextInput style={styles.input} value={modelNumber} onChangeText={setmodelNumber} placeholder="e.g. XT-P360" autoCapitalize="characters" />
               
 
               <Text style={styles.fieldLabel}>Status</Text>

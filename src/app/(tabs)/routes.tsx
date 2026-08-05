@@ -1,6 +1,18 @@
 import { ArrowRight, MapPin, Package, Plus, RefreshCw, X } from 'lucide-react-native';
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, FlatList, Modal, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  Modal,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { supabase } from '../../../lib/supabase';
 import { colors, radius } from '../constants/theme';
 
@@ -27,8 +39,8 @@ type Route = {
   other_expenses_description: string | null;
   total_expenses: number;
   profit_loss: number;
-  driver: { full_name: string } | null;
-  truck: { truck_code: string } | null;
+  driver: { id: string; full_name: string } | null;
+  truck: { id: string; truck_code: string; model: string } | null;
 };
 
 type Option = { id: string; label: string; sub?: string };
@@ -67,6 +79,31 @@ export default function RoutesScreen() {
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
 
+  // Edit form state
+  const [editClientName, setEditClientName] = useState('');
+  const [editOrigin, setEditOrigin] = useState('');
+  const [editDestination, setEditDestination] = useState('');
+  const [editDistanceKm, setEditDistanceKm] = useState('');
+  const [editCargoDescription, setEditCargoDescription] = useState('');
+  const [editCargoType, setEditCargoType] = useState('transit');
+  const [editCargoTypeDescription, setEditCargoTypeDescription] = useState('');
+  const [editCargoPackage, setEditCargoPackage] = useState('loose');
+  const [editCargoClass, setEditCargoClass] = useState('normal');
+  const [editCargoWeight, setEditCargoWeight] = useState('');
+  const [editRoutePrice, setEditRoutePrice] = useState('');
+  const [editDriverAllowance, setEditDriverAllowance] = useState('');
+  const [editRoadTollsPermits, setEditRoadTollsPermits] = useState('');
+  const [editRoadTollsDescription, setEditRoadTollsDescription] = useState('');
+  const [editOtherExpenses, setEditOtherExpenses] = useState('');
+  const [editOtherExpensesDescription, setEditOtherExpensesDescription] = useState('');
+  const [editDriverId, setEditDriverId] = useState<string | null>(null);
+  const [editDriverLabel, setEditDriverLabel] = useState('');
+  const [editTruckId, setEditTruckId] = useState<string | null>(null);
+  const [editTruckLabel, setEditTruckLabel] = useState('');
+  const [editStatus, setEditStatus] = useState<Route['status']>('planned');
+  const [pickerMode, setPickerMode] = useState<'create' | 'edit'>('create');
+
+  // Create form state
   const [clientName, setClientName] = useState('');
   const [origin, setOrigin] = useState('');
   const [destination, setDestination] = useState('');
@@ -89,24 +126,27 @@ export default function RoutesScreen() {
   const [truckId, setTruckId] = useState<string | null>(null);
   const [truckLabel, setTruckLabel] = useState('');
 
+  const [editingRoute, setEditingRoute] = useState<Route | null>(null);
+  const [editModalOpen, setEditModalOpen] = useState(false);
+
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerOptions, setPickerOptions] = useState<Option[]>([]);
   const [pickerSearch, setPickerSearch] = useState('');
   const [truckLookupError, setTruckLookupError] = useState('');
 
-const formatCurrency = (value: number | null | undefined): string => {
-  if (value == null) return '0.00';
-  return Number(value).toLocaleString('en-US', { 
-    minimumFractionDigits: 2, 
-    maximumFractionDigits: 2 
-  });
-};
+  const formatCurrency = (value: number | null | undefined): string => {
+    if (value == null) return '0.00';
+    return Number(value).toLocaleString('en-US', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+  };
 
   const fetchRoutes = useCallback(async () => {
     setError('');
     const { data, error } = await supabase
       .from('routes')
-      .select('*, driver:drivers(full_name), truck:trucks(truck_code)')
+      .select('*, driver:drivers(id, full_name), truck:trucks(id, truck_code, model)')
       .order('created_at', { ascending: false });
     if (error) setError(error.message);
     else setRoutes(data as unknown as Route[]);
@@ -114,39 +154,128 @@ const formatCurrency = (value: number | null | undefined): string => {
     setRefreshing(false);
   }, []);
 
-  useEffect(() => { fetchRoutes(); }, [fetchRoutes]);
-  const onRefresh = () => { setRefreshing(true); fetchRoutes(); };
+  useEffect(() => {
+    fetchRoutes();
+  }, [fetchRoutes]);
 
-  const resetForm = () => {
-    setClientName(''); setOrigin(''); setDestination(''); setDistanceKm('');
-    setCargoDescription('');
-    setCargoType('transit'); setCargoTypeDescription('');
-    setCargoPackage('loose');
-    setCargoClass('normal'); setCargoWeight('');
-    setRoutePrice(''); setDriverAllowance('');
-    setRoadTollsPermits(''); setRoadTollsDescription('');
-    setOtherExpenses(''); setOtherExpensesDescription('');
-    setDriverId(null); setDriverLabel(''); setTruckId(null); setTruckLabel('');
-    setTruckLookupError('');
-    setFormError('');
+  const onRefresh = () => {
+    setRefreshing(true);
+    fetchRoutes();
   };
 
-  const openPicker = async () => {
+  const deleteRoute = (routeId: string) => {
+    Alert.alert(
+      'Delete Route',
+      'Are you sure you want to delete this route? This will also delete all associated fuel logs.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            setLoading(true);
+
+            const { error: fuelError } = await supabase
+              .from('fuel_logs')
+              .delete()
+              .eq('route_id', routeId);
+
+            if (fuelError) {
+              setLoading(false);
+              setError('Failed to delete fuel logs: ' + fuelError.message);
+              return;
+            }
+
+            const { error } = await supabase.from('routes').delete().eq('id', routeId);
+
+            setLoading(false);
+            if (error) {
+              setError('Failed to delete route: ' + error.message);
+              return;
+            }
+            fetchRoutes();
+          },
+        },
+      ]
+    );
+  };
+
+  const resetEditForm = useCallback(() => {
+    setEditingRoute(null);
+    setEditClientName('');
+    setEditOrigin('');
+    setEditDestination('');
+    setEditDistanceKm('');
+    setEditCargoDescription('');
+    setEditCargoType('transit');
+    setEditCargoTypeDescription('');
+    setEditCargoPackage('loose');
+    setEditCargoClass('normal');
+    setEditCargoWeight('');
+    setEditRoutePrice('');
+    setEditDriverAllowance('');
+    setEditRoadTollsPermits('');
+    setEditRoadTollsDescription('');
+    setEditOtherExpenses('');
+    setEditOtherExpensesDescription('');
+    setEditDriverId(null);
+    setEditDriverLabel('');
+    setEditTruckId(null);
+    setEditTruckLabel('');
+    setEditStatus('planned');
+    setFormError('');
+  }, []);
+
+  const resetForm = useCallback(() => {
+    setClientName('');
+    setOrigin('');
+    setDestination('');
+    setDistanceKm('');
+    setCargoDescription('');
+    setCargoType('transit');
+    setCargoTypeDescription('');
+    setCargoPackage('loose');
+    setCargoClass('normal');
+    setCargoWeight('');
+    setRoutePrice('');
+    setDriverAllowance('');
+    setRoadTollsPermits('');
+    setRoadTollsDescription('');
+    setOtherExpenses('');
+    setOtherExpensesDescription('');
+    setDriverId(null);
+    setDriverLabel('');
+    setTruckId(null);
+    setTruckLabel('');
+    setTruckLookupError('');
+    setFormError('');
+  }, []);
+
+  const openPicker = async (mode: 'create' | 'edit' = 'create') => {
+    setPickerMode(mode);
     setPickerOpen(true);
     setPickerSearch('');
+
     const { data } = await supabase.from('drivers').select('id, full_name, driver_code');
     setPickerOptions((data || []).map((d: any) => ({ id: d.id, label: d.full_name, sub: d.driver_code })));
   };
 
   const selectDriver = async (opt: Option) => {
-    setDriverId(opt.id);
-    setDriverLabel(opt.label);
+    if (pickerMode === 'create') {
+      setDriverId(opt.id);
+      setDriverLabel(opt.label);
+      setTruckId(null);
+      setTruckLabel('');
+    } else {
+      setEditDriverId(opt.id);
+      setEditDriverLabel(opt.label);
+      setEditTruckId(null);
+      setEditTruckLabel('');
+    }
+
     setPickerOpen(false);
     setTruckLookupError('');
-    setTruckId(null);
-    setTruckLabel('');
 
-    // Pull the truck assigned to this driver automatically — no manual entry
     const { data, error } = await supabase
       .from('trucks')
       .select('id, truck_code, model')
@@ -157,9 +286,12 @@ const formatCurrency = (value: number | null | undefined): string => {
       setTruckLookupError('Could not look up assigned truck.');
     } else if (!data) {
       setTruckLookupError('This driver has no truck assigned yet. Assign one in Fleet & Trucks first.');
-    } else {
+    } else if (pickerMode === 'create') {
       setTruckId(data.id);
       setTruckLabel(`${data.truck_code} — ${data.model}`);
+    } else {
+      setEditTruckId(data.id);
+      setEditTruckLabel(`${data.truck_code} — ${data.model}`);
     }
   };
 
@@ -201,12 +333,94 @@ const formatCurrency = (value: number | null | undefined): string => {
     fetchRoutes();
   };
 
-  const filteredPickerOptions = pickerOptions.filter(o =>
+  const openEditModal = (route: Route) => {
+    if (formOpen) {
+      setFormOpen(false);
+      resetForm();
+    }
+
+    setEditingRoute(route);
+    setEditClientName(route.client_name);
+    setEditOrigin(route.origin);
+    setEditDestination(route.destination);
+    setEditDistanceKm(route.distance_km?.toString() || '');
+    setEditCargoDescription(route.cargo_description || '');
+    setEditCargoType(route.cargo_type || 'transit');
+    setEditCargoTypeDescription(route.cargo_type_description || '');
+    setEditCargoPackage(route.cargo_package || 'loose');
+    setEditCargoClass(route.cargo_class || 'normal');
+    setEditCargoWeight(route.cargo_weight_kg?.toString() || '');
+    setEditRoutePrice(route.route_price?.toString() || '');
+    setEditDriverAllowance(route.driver_allowance?.toString() || '');
+    setEditRoadTollsPermits(route.road_tolls_permits?.toString() || '');
+    setEditRoadTollsDescription(route.road_tolls_permits_description || '');
+    setEditOtherExpenses(route.other_expenses?.toString() || '');
+    setEditOtherExpensesDescription(route.other_expenses_description || '');
+    setEditDriverId(route.driver?.id || null);
+    setEditDriverLabel(route.driver?.full_name || '');
+    setEditTruckId(route.truck?.id || null);
+    setEditTruckLabel(route.truck ? `${route.truck.truck_code} — ${route.truck.model}` : '');
+    setEditStatus(route.status);
+    setFormError('');
+    setEditModalOpen(true);
+  };
+
+  const handleUpdateRoute = async () => {
+    if (!editingRoute) return;
+
+    setFormError('');
+    if (!editClientName || !editOrigin || !editDestination || !editDriverId || !editTruckId) {
+      setFormError('Client name, origin, destination, driver, and truck are required');
+      return;
+    }
+
+    setSaving(true);
+    const { error } = await supabase
+      .from('routes')
+      .update({
+        client_name: editClientName,
+        origin: editOrigin,
+        destination: editDestination,
+        distance_km: editDistanceKm ? Number(editDistanceKm) : null,
+        driver_id: editDriverId,
+        truck_id: editTruckId,
+        cargo_description: editCargoDescription || null,
+        cargo_type: editCargoType,
+        cargo_type_description: editCargoTypeDescription || null,
+        cargo_package: editCargoPackage,
+        cargo_class: editCargoClass,
+        cargo_weight_kg: editCargoWeight ? Number(editCargoWeight) : null,
+        route_price: editRoutePrice ? Number(editRoutePrice) : 0,
+        driver_allowance: editDriverAllowance ? Number(editDriverAllowance) : 0,
+        road_tolls_permits: editRoadTollsPermits ? Number(editRoadTollsPermits) : 0,
+        road_tolls_permits_description: editRoadTollsDescription || null,
+        other_expenses: editOtherExpenses ? Number(editOtherExpenses) : 0,
+        other_expenses_description: editOtherExpensesDescription || null,
+        status: editStatus,
+      })
+      .eq('id', editingRoute.id);
+
+    setSaving(false);
+    if (error) {
+      setFormError(error.message);
+      return;
+    }
+
+    setEditModalOpen(false);
+    resetEditForm();
+    fetchRoutes();
+  };
+
+  const filteredPickerOptions = pickerOptions.filter((o) =>
     o.label.toLowerCase().includes(pickerSearch.toLowerCase())
   );
 
   if (loading) {
-    return <View style={styles.centered}><ActivityIndicator color={colors.primary} size="large" /></View>;
+    return (
+      <View style={styles.centered}>
+        <ActivityIndicator color={colors.primary} size="large" />
+      </View>
+    );
   }
 
   return (
@@ -218,134 +432,151 @@ const formatCurrency = (value: number | null | undefined): string => {
       >
         {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
-      <View style={styles.actionRow}>
+        <View style={styles.actionRow}>
           <TouchableOpacity style={[styles.newRouteBtn, { flex: 1 }]} onPress={() => setFormOpen(true)}>
             <Plus size={16} color="#fff" />
             <Text style={styles.newRouteText}>New Route</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.refreshBtn} onPress={onRefresh} disabled={refreshing}>
-            {refreshing ? <ActivityIndicator color={colors.primary} size="small" /> : <RefreshCw size={18} color={colors.primary} />}
+            {refreshing ? (
+              <ActivityIndicator color={colors.primary} size="small" />
+            ) : (
+              <RefreshCw size={18} color={colors.primary} />
+            )}
           </TouchableOpacity>
-        
         </View>
+
         {routes.length === 0 ? (
           <Text style={styles.emptyText}>No routes found.</Text>
         ) : (
           routes.map((r) => {
             const s = statusMap[r.status];
+            const positive = Number(r.profit_loss) >= 0;
             return (
               <View key={r.id} style={styles.card}>
                 <View style={styles.rowBetween}>
-                  <Text style={[styles.name, { color: Number(r.profit_loss) >= 0 ? colors.success : colors.destructive }]}>
-                  {r.client_name}
+                  <Text style={[styles.name, { color: positive ? colors.success : colors.destructive }]}>
+                    {r.client_name}
                   </Text>
-                  <View style={[styles.badge, { backgroundColor: s.bg }]}>
-                    <Text style={[styles.badgeText, { color: s.color }]}>{s.label}</Text>
+                  <View style={styles.actionButtons}>
+                    <TouchableOpacity style={[styles.actionBtn, styles.editBtn]} onPress={() => openEditModal(r)}>
+                      <Text style={styles.actionBtnText}>✏️</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={[styles.actionBtn, styles.deleteBtn]} onPress={() => deleteRoute(r.id)}>
+                      <Text style={styles.actionBtnText}>🗑️</Text>
+                    </TouchableOpacity>
+                    <View style={[styles.badge, { backgroundColor: s.bg }]}>
+                      <Text style={[styles.badgeText, { color: s.color }]}>{s.label}</Text>
+                    </View>
                   </View>
-                  </View>
+                </View>
+
                 <View style={styles.pathRow}>
-                 <MapPin size={12} color={Number(r.profit_loss) >= 0 ? colors.success : colors.destructive} />
-                <Text style={[styles.pathText, { color: Number(r.profit_loss) >= 0 ? colors.success : colors.destructive }]}>
-                {r.origin}
-                </Text>
-                <ArrowRight size={12} color={Number(r.profit_loss) >= 0 ? colors.success : colors.destructive} />
-                <Text style={[styles.pathText, { color: Number(r.profit_loss) >= 0 ? colors.success : colors.destructive }]}>
-                {r.destination}
-     </Text>
-    {r.distance_km != null && (
-    <Text style={[styles.pathText, { color: Number(r.profit_loss) >= 0 ? colors.success : colors.destructive }]}>
-      · {r.distance_km} km
-     </Text>
-    )}
-    </View>
-{/* Line 1: Cargo Description */}
-{r.cargo_description ? <Text style={styles.detailText}>{r.cargo_description}</Text> : null}
+                  <MapPin size={12} color={positive ? colors.success : colors.destructive} />
+                  <Text style={[styles.pathText, { color: positive ? colors.success : colors.destructive }]}>
+                    {r.origin}
+                  </Text>
+                  <ArrowRight size={12} color={positive ? colors.success : colors.destructive} />
+                  <Text style={[styles.pathText, { color: positive ? colors.success : colors.destructive }]}>
+                    {r.destination}
+                  </Text>
+                  {r.distance_km != null && (
+                    <Text style={[styles.pathText, { color: positive ? colors.success : colors.destructive }]}>
+                      · {r.distance_km} km
+                    </Text>
+                  )}
+                </View>
 
-{/* Line 2: Cargo Type, Package, Weight, Class */}
-{(r.cargo_type || r.cargo_package) && (
-  <View style={styles.cargoRow}>
-    <Package size={12} color={colors.mutedForeground} />
-    <Text style={styles.detailText}>
-      {cargoTypes.find(c => c.value === r.cargo_type)?.label || ''}
-      {r.cargo_package ? ` · ${cargoPackages.find(c => c.value === r.cargo_package)?.label}` : ''}
-      {r.cargo_weight_kg ? ` · ${r.cargo_weight_kg} kg` : ''}
-      {r.cargo_class === 'abnormal_wide_load' ? ' · Abnormal Load' : ''}
-    </Text>
-  </View>
-)}
+                {r.cargo_description ? <Text style={styles.detailText}>{r.cargo_description}</Text> : null}
 
-{/* Line 3: Cargo Type Description (new) */}
-{r.cargo_type_description ? (
-  <Text style={[styles.detailText, { marginTop: 4 }]}>
-    {r.cargo_type_description}
-  </Text>
-) : null}
+                {(r.cargo_type || r.cargo_package) && (
+                  <View style={styles.cargoRow}>
+                    <Package size={12} color={colors.mutedForeground} />
+                    <Text style={styles.detailText}>
+                      {cargoTypes.find((c) => c.value === r.cargo_type)?.label || ''}
+                      {r.cargo_package ? ` · ${cargoPackages.find((c) => c.value === r.cargo_package)?.label}` : ''}
+                      {r.cargo_weight_kg ? ` · ${r.cargo_weight_kg} kg` : ''}
+                      {r.cargo_class === 'abnormal_wide_load' ? ' · Abnormal Load' : ''}
+                    </Text>
+                  </View>
+                )}
 
-{/* Line 4: Driver and Truck Details */}
-<View style={styles.details}>
-  {r.driver?.full_name && <Text style={styles.detailText}>Driver: {r.driver.full_name}</Text>}
-  {r.truck?.truck_code && <Text style={styles.detailText}>Truck: {r.truck.truck_code}</Text>}
-</View>
-                
-                
-               <View style={styles.financials}>
+                {r.cargo_type_description ? (
+                  <Text style={[styles.detailText, { marginTop: 4 }]}>{r.cargo_type_description}</Text>
+                ) : null}
 
-  {/* Route Price - moved down to group with Total Expenses */}
-  
- <View style={styles.finRow}>
-  <Text style={[styles.finLabel, { color:'#3a3232a2', fontWeight: '700' }]}>Fuel</Text>
-  <Text style={[styles.finValue, { color:'#3a3232a2' }]}>TZS {formatCurrency(r.fuel_cost)}</Text>
-</View>
+                <View style={styles.details}>
+                  {r.driver?.full_name && <Text style={styles.detailText}>Driver: {r.driver.full_name}</Text>}
+                  {r.truck?.truck_code && (
+                    <Text style={styles.detailText}>
+                      Truck: {r.truck?.model ? `${r.truck.model.toUpperCase()} - ${r.truck.truck_code}` : r.truck.truck_code}
+                    </Text>
+                  )}
+                </View>
 
-  <View style={styles.finRow}>
-  <Text style={[styles.finLabel, { color: '#3a3232a2', fontWeight: '700' }]}>Driver Allowance</Text>
-  <Text style={[styles.finValue, { color:'#3a3232a2' }]}>TZS {formatCurrency(r.driver_allowance)}</Text>
-</View>
+                <View style={styles.financials}>
+                  <View style={styles.finRow}>
+                    <Text style={[styles.finLabel, { color: '#3a3232a2', fontWeight: '700' }]}>Fuel</Text>
+                    <Text style={[styles.finValue, { color: '#3a3232a2' }]}>TZS {formatCurrency(r.fuel_cost)}</Text>
+                  </View>
 
-  <View style={styles.finRow}>
-  <Text style={[styles.finLabel, { color: '#3a3232a2', fontWeight: '700' }]}>Road Tolls & Permits</Text>
-  <Text style={[styles.finValue, { color: '#3a3232a2' }]}>TZS {formatCurrency(r.road_tolls_permits)}</Text>
-</View>
+                  <View style={styles.finRow}>
+                    <Text style={[styles.finLabel, { color: '#3a3232a2', fontWeight: '700' }]}>Driver Allowance</Text>
+                    <Text style={[styles.finValue, { color: '#3a3232a2' }]}>TZS {formatCurrency(r.driver_allowance)}</Text>
+                  </View>
 
-  <View style={styles.finRow}>
-  <Text style={[styles.finLabel, { color: '#3a3232a2', fontWeight: '700' }]}>Other Expenses</Text>
-  <Text style={[styles.finValue, { color: '#3a3232a2'}]}>TZS {formatCurrency(r.other_expenses)}</Text>
-</View>
-  {r.other_expenses_description ? <Text style={styles.finNote}>{r.other_expenses_description}</Text> : null}
+                  <View style={styles.finRow}>
+                    <Text style={[styles.finLabel, { color: '#3a3232a2', fontWeight: '700' }]}>Road Tolls & Permits</Text>
+                    <Text style={[styles.finValue, { color: '#3a3232a2' }]}>TZS {formatCurrency(r.road_tolls_permits)}</Text>
+                  </View>
 
-  {/* Grouped: Route Price & Total Expenses together */}
-  <View style={[styles.finRow, styles.finRowTotalExpenses]}>
-  <Text style={[styles.finLabelSubtotal, { color: colors.foreground }]}>Route Price</Text>
-  <Text style={[styles.finValueSubtotal, { color: colors.foreground }]}>TZS {formatCurrency(r.route_price)}</Text>
-</View>
+                  <View style={styles.finRow}>
+                    <Text style={[styles.finLabel, { color: '#3a3232a2', fontWeight: '700' }]}>Other Expenses</Text>
+                    <Text style={[styles.finValue, { color: '#3a3232a2' }]}>TZS {formatCurrency(r.other_expenses)}</Text>
+                  </View>
+                  {r.other_expenses_description ? (
+                    <Text style={styles.finNote}>{r.other_expenses_description}</Text>
+                  ) : null}
 
-  <View style={[styles.finRow, styles.finRowTotalExpenses]}>
-    <Text style={[styles.finLabelSubtotal, { color: colors.destructive }]}>Total Expenses</Text>
-    <Text style={styles.finValueSubtotal}>TZS {formatCurrency(r.total_expenses)}</Text>
-  </View>
+                  <View style={[styles.finRow, styles.finRowTotalExpenses]}>
+                    <Text style={[styles.finLabelSubtotal, { color: colors.foreground }]}>Route Price</Text>
+                    <Text style={[styles.finValueSubtotal, { color: colors.foreground }]}>
+                      TZS {formatCurrency(r.route_price)}
+                    </Text>
+                  </View>
 
-  {/* Profit / Loss */}
-<View style={[styles.finRow, styles.finRowTotal]}>
-  <Text style={[styles.finLabelTotal, { color: Number(r.profit_loss) >= 0 ? colors.success : colors.destructive }]}>
-    {Number(r.profit_loss) >= 0 ? 'PROFIT' : 'LOSS'}
-  </Text>
-  <Text style={[styles.finValueTotal, { color: Number(r.profit_loss) >= 0 ? colors.success : colors.destructive }]}>
-    TZS {formatCurrency(r.profit_loss)}
-  </Text>
-</View>
-</View>
+                  <View style={[styles.finRow, styles.finRowTotalExpenses]}>
+                    <Text style={[styles.finLabelSubtotal, { color: colors.destructive }]}>Total Expenses</Text>
+                    <Text style={styles.finValueSubtotal}>TZS {formatCurrency(r.total_expenses)}</Text>
+                  </View>
+
+                  <View style={[styles.finRow, styles.finRowTotal]}>
+                    <Text style={[styles.finLabelTotal, { color: positive ? colors.success : colors.destructive }]}>
+                      {positive ? 'PROFIT' : 'LOSS'}
+                    </Text>
+                    <Text style={[styles.finValueTotal, { color: positive ? colors.success : colors.destructive }]}>
+                      TZS {formatCurrency(r.profit_loss)}
+                    </Text>
+                  </View>
+                </View>
               </View>
             );
           })
         )}
       </ScrollView>
 
+      {/* CREATE ROUTE MODAL */}
       <Modal visible={formOpen} animationType="slide" transparent onRequestClose={() => setFormOpen(false)}>
         <View style={styles.modalOverlay}>
           <View style={styles.formSheet}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>New Route</Text>
-              <TouchableOpacity onPress={() => { setFormOpen(false); resetForm(); }}>
+              <TouchableOpacity
+                onPress={() => {
+                  setFormOpen(false);
+                  resetForm();
+                }}
+              >
                 <X size={20} color={colors.mutedForeground} />
               </TouchableOpacity>
             </View>
@@ -365,8 +596,10 @@ const formatCurrency = (value: number | null | undefined): string => {
               <TextInput style={styles.input} value={distanceKm} onChangeText={setDistanceKm} keyboardType="numeric" placeholder="e.g. 620" />
 
               <Text style={styles.fieldLabel}>Driver</Text>
-              <TouchableOpacity style={styles.pickerBtn} onPress={openPicker}>
-                <Text style={driverLabel ? styles.pickerText : styles.pickerPlaceholder}>{driverLabel || 'Select driver'}</Text>
+              <TouchableOpacity style={styles.pickerBtn} onPress={() => openPicker('create')}>
+                <Text style={driverLabel ? styles.pickerText : styles.pickerPlaceholder}>
+                  {driverLabel || 'Select driver'}
+                </Text>
               </TouchableOpacity>
 
               <Text style={styles.fieldLabel}>Truck (auto-assigned)</Text>
@@ -382,7 +615,7 @@ const formatCurrency = (value: number | null | undefined): string => {
 
               <Text style={styles.fieldLabel}>Cargo Type</Text>
               <View style={styles.segmentRow}>
-                {cargoTypes.map(c => (
+                {cargoTypes.map((c) => (
                   <TouchableOpacity
                     key={c.value}
                     style={[styles.segment, cargoType === c.value && styles.segmentActive]}
@@ -396,7 +629,7 @@ const formatCurrency = (value: number | null | undefined): string => {
 
               <Text style={styles.fieldLabel}>Cargo Package</Text>
               <View style={styles.segmentRow}>
-                {cargoPackages.map(c => (
+                {cargoPackages.map((c) => (
                   <TouchableOpacity
                     key={c.value}
                     style={[styles.segment, cargoPackage === c.value && styles.segmentActive]}
@@ -409,7 +642,7 @@ const formatCurrency = (value: number | null | undefined): string => {
 
               <Text style={styles.fieldLabel}>Cargo Class</Text>
               <View style={styles.segmentRow}>
-                {cargoClasses.map(c => (
+                {cargoClasses.map((c) => (
                   <TouchableOpacity
                     key={c.value}
                     style={[styles.segment, cargoClass === c.value && styles.segmentActive]}
@@ -449,6 +682,133 @@ const formatCurrency = (value: number | null | undefined): string => {
         </View>
       </Modal>
 
+      {/* EDIT ROUTE MODAL */}
+      <Modal visible={editModalOpen} animationType="slide" transparent onRequestClose={() => setEditModalOpen(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.formSheet}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Edit Route</Text>
+              <TouchableOpacity
+                onPress={() => {
+                  setEditModalOpen(false);
+                  resetEditForm();
+                }}
+              >
+                <X size={20} color={colors.mutedForeground} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {formError ? <Text style={styles.errorText}>{formError}</Text> : null}
+
+              <Text style={styles.fieldLabel}>Client Name</Text>
+              <TextInput style={styles.input} value={editClientName} onChangeText={setEditClientName} placeholder="e.g. Interworld Logistics" />
+
+              <Text style={styles.fieldLabel}>Origin</Text>
+              <TextInput style={styles.input} value={editOrigin} onChangeText={setEditOrigin} placeholder="e.g. Dar es Salaam Port" />
+
+              <Text style={styles.fieldLabel}>Destination</Text>
+              <TextInput style={styles.input} value={editDestination} onChangeText={setEditDestination} placeholder="e.g. Mwanza Terminal" />
+
+              <Text style={styles.fieldLabel}>Distance (km)</Text>
+              <TextInput style={styles.input} value={editDistanceKm} onChangeText={setEditDistanceKm} keyboardType="numeric" placeholder="e.g. 620" />
+
+              <Text style={styles.fieldLabel}>Driver</Text>
+              <TouchableOpacity style={styles.pickerBtn} onPress={() => openPicker('edit')}>
+                <Text style={editDriverLabel ? styles.pickerText : styles.pickerPlaceholder}>
+                  {editDriverLabel || 'Select driver'}
+                </Text>
+              </TouchableOpacity>
+
+              <Text style={styles.fieldLabel}>Truck</Text>
+              <View style={styles.readOnlyBox}>
+                <Text style={editTruckLabel ? styles.pickerText : styles.pickerPlaceholder}>
+                  {editTruckLabel || 'Select a driver to auto-fill their truck'}
+                </Text>
+              </View>
+              {truckLookupError ? <Text style={styles.warningText}>{truckLookupError}</Text> : null}
+
+              <Text style={styles.fieldLabel}>Status</Text>
+              <View style={styles.segmentRow}>
+                {Object.entries(statusMap).map(([key, value]) => (
+                  <TouchableOpacity
+                    key={key}
+                    style={[styles.segment, editStatus === key && styles.segmentActive]}
+                    onPress={() => setEditStatus(key as Route['status'])}
+                  >
+                    <Text style={[styles.segmentText, editStatus === key && styles.segmentTextActive]}>{value.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <Text style={styles.fieldLabel}>Cargo Description</Text>
+              <TextInput style={styles.input} value={editCargoDescription} onChangeText={setEditCargoDescription} placeholder="Brief description of the cargo" />
+
+              <Text style={styles.fieldLabel}>Cargo Type</Text>
+              <View style={styles.segmentRow}>
+                {cargoTypes.map((c) => (
+                  <TouchableOpacity
+                    key={c.value}
+                    style={[styles.segment, editCargoType === c.value && styles.segmentActive]}
+                    onPress={() => setEditCargoType(c.value)}
+                  >
+                    <Text style={[styles.segmentText, editCargoType === c.value && styles.segmentTextActive]}>{c.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+              <TextInput style={[styles.input, { marginTop: 8 }]} value={editCargoTypeDescription} onChangeText={setEditCargoTypeDescription} placeholder="Cargo type description" />
+
+              <Text style={styles.fieldLabel}>Cargo Package</Text>
+              <View style={styles.segmentRow}>
+                {cargoPackages.map((c) => (
+                  <TouchableOpacity
+                    key={c.value}
+                    style={[styles.segment, editCargoPackage === c.value && styles.segmentActive]}
+                    onPress={() => setEditCargoPackage(c.value)}
+                  >
+                    <Text style={[styles.segmentText, editCargoPackage === c.value && styles.segmentTextActive]}>{c.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <Text style={styles.fieldLabel}>Cargo Class</Text>
+              <View style={styles.segmentRow}>
+                {cargoClasses.map((c) => (
+                  <TouchableOpacity
+                    key={c.value}
+                    style={[styles.segment, editCargoClass === c.value && styles.segmentActive]}
+                    onPress={() => setEditCargoClass(c.value)}
+                  >
+                    <Text style={[styles.segmentText, editCargoClass === c.value && styles.segmentTextActive]}>{c.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <Text style={styles.fieldLabel}>Cargo Weight (kg)</Text>
+              <TextInput style={styles.input} value={editCargoWeight} onChangeText={setEditCargoWeight} keyboardType="numeric" placeholder="e.g. 12000" />
+
+              <Text style={styles.fieldLabel}>Route Price (TZS)</Text>
+              <TextInput style={styles.input} value={editRoutePrice} onChangeText={setEditRoutePrice} keyboardType="numeric" placeholder="Amount charged to client" />
+
+              <Text style={styles.fieldLabel}>Driver Allowance (TZS)</Text>
+              <TextInput style={styles.input} value={editDriverAllowance} onChangeText={setEditDriverAllowance} keyboardType="numeric" placeholder="Route allowance" />
+
+              <Text style={styles.fieldLabel}>Road Tolls & Permits (TZS)</Text>
+              <TextInput style={styles.input} value={editRoadTollsPermits} onChangeText={setEditRoadTollsPermits} keyboardType="numeric" placeholder="Toll and permit fees" />
+              <TextInput style={[styles.input, { marginTop: 8 }]} value={editRoadTollsDescription} onChangeText={setEditRoadTollsDescription} placeholder="Description (e.g. which tolls/permits)" />
+
+              <Text style={styles.fieldLabel}>Other Expenses (TZS)</Text>
+              <TextInput style={styles.input} value={editOtherExpenses} onChangeText={setEditOtherExpenses} keyboardType="numeric" placeholder="Any other cost" />
+              <TextInput style={[styles.input, { marginTop: 8 }]} value={editOtherExpensesDescription} onChangeText={setEditOtherExpensesDescription} placeholder="Description of other expenses" />
+
+              <TouchableOpacity style={styles.submitBtn} onPress={handleUpdateRoute} disabled={saving}>
+                {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitText}>Update Route</Text>}
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* PICKER MODAL */}
       <Modal visible={pickerOpen} animationType="slide" transparent onRequestClose={() => setPickerOpen(false)}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalSheet}>
@@ -476,7 +836,7 @@ const formatCurrency = (value: number | null | undefined): string => {
     </>
   );
 }
- 
+
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.background },
@@ -486,14 +846,14 @@ const styles = StyleSheet.create({
   newRouteText: { color: '#fff', fontWeight: '700', fontSize: 14 },
   actionRow: { flexDirection: 'row', gap: 10, marginBottom: 16 },
   refreshBtn: { width: 48, height: 48, borderRadius: radius, backgroundColor: colors.card, alignItems: 'center', justifyContent: 'center' },
-  card: { 
-  backgroundColor: colors.card, 
-  borderRadius: radius, 
-  padding: 14, 
-  marginBottom: 10, 
-  borderBottomWidth: 3,           // <-- BOLD LINE THICKNESS
-  borderBottomColor: colors.foreground  // <-- USE YOUR THEME COLOR
-},
+  card: {
+    backgroundColor: colors.card,
+    borderRadius: radius,
+    padding: 14,
+    marginBottom: 10,
+    borderBottomWidth: 3,
+    borderBottomColor: colors.foreground,
+  },
   rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   name: { fontSize: 14, fontWeight: '700', color: colors.foreground },
   badge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
@@ -538,5 +898,9 @@ const styles = StyleSheet.create({
   helperNote: { fontSize: 11, color: colors.mutedForeground, marginTop: 16, fontStyle: 'italic' },
   submitBtn: { backgroundColor: colors.primary, borderRadius: radius, padding: 16, alignItems: 'center', marginTop: 20, marginBottom: 30 },
   submitText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+  actionButtons: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  actionBtn: { padding: 4, borderRadius: 6, width: 28, height: 28, alignItems: 'center', justifyContent: 'center' },
+  editBtn: { backgroundColor: '#eff6ff' },
+  deleteBtn: { backgroundColor: '#fef2f2' },
+  actionBtnText: { fontSize: 12 },
 });
- 
