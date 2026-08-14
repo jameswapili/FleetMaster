@@ -13,6 +13,8 @@ const screens: { name: string; title: string }[] = [
   { name: 'maintenance', title: 'Maintenance' },
   { name: 'payroll', title: 'Salaries & Payroll' },
   { name: 'reports', title: 'Reports' },
+  // 🆕 ADD THIS LINE
+  { name: 'truck_stats', title: 'Truck Statistics' },
 ];
 
 export default function DrawerLayout() {

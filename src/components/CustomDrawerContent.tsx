@@ -36,6 +36,7 @@ const sections = [
       { name: 'fuel', label: 'Fuel Management', icon: Fuel },
       { name: 'routes', label: 'Routes', icon: MapPin },
       { name: 'maintenance', label: 'Maintenance', icon: Wrench },
+      { name: 'truck_stats', label: 'Truck Statistics', icon: BarChart3 },
     ],
   },
   {
