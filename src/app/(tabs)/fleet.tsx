@@ -1,3 +1,4 @@
+import { router } from 'expo-router';
 import { Gauge, Plus, RefreshCw, Search, TrendingUp, User, Wrench, X } from 'lucide-react-native';
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, FlatList, Modal, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
@@ -208,7 +209,12 @@ export default function FleetScreen() {
             const s = statusMap[t.status];
             const stats = statsMap[t.id];
             return (
-              <View key={t.id} style={styles.card}>
+              <TouchableOpacity
+  key={t.id}
+  style={styles.card}
+  onPress={() => router.push(`/trucks/${t.id}`)}
+  activeOpacity={0.7}
+>
                 <View style={styles.row}>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.name}>{t.model} — {t.truck_code}</Text>
@@ -264,7 +270,7 @@ export default function FleetScreen() {
                     {t.driver?.full_name ? `Driver: ${t.driver.full_name}` : 'Assign a driver'}
                   </Text>
                 </TouchableOpacity>
-              </View>
+              </TouchableOpacity>
             );
           })
         )}

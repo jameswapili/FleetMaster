@@ -1,3 +1,4 @@
+import { router } from 'expo-router';
 import { ArrowRight, MapPin, Package, Plus, RefreshCw, X } from 'lucide-react-native';
 import { useCallback, useEffect, useState } from 'react';
 import {
@@ -453,7 +454,12 @@ export default function RoutesScreen() {
             const s = statusMap[r.status];
             const positive = Number(r.profit_loss) >= 0;
             return (
-              <View key={r.id} style={styles.card}>
+              <TouchableOpacity
+  key={r.id}
+  style={styles.card}
+  onPress={() => router.push(`/routes/${r.id}`)}
+  activeOpacity={0.7}
+>
                 <View style={styles.rowBetween}>
                   <Text style={[styles.name, { color: positive ? colors.success : colors.destructive }]}>
                     {r.client_name}
@@ -469,8 +475,8 @@ export default function RoutesScreen() {
                       <Text style={[styles.badgeText, { color: s.color }]}>{s.label}</Text>
                     </View>
                   </View>
-                </View>
-
+                  </View>
+                            
                 <View style={styles.pathRow}>
                   <MapPin size={12} color={positive ? colors.success : colors.destructive} />
                   <Text style={[styles.pathText, { color: positive ? colors.success : colors.destructive }]}>
@@ -486,6 +492,8 @@ export default function RoutesScreen() {
                     </Text>
                   )}
                 </View>
+                
+              
 
                 {r.cargo_description ? <Text style={styles.detailText}>{r.cargo_description}</Text> : null}
 
@@ -559,7 +567,7 @@ export default function RoutesScreen() {
                     </Text>
                   </View>
                 </View>
-              </View>
+              </TouchableOpacity>
             );
           })
         )}

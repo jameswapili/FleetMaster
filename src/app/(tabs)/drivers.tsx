@@ -1,3 +1,4 @@
+import { router } from 'expo-router';
 import { Pencil, Phone, Plus, RefreshCw, Search, Star, Trash2, TrendingUp, Truck as TruckIcon } from 'lucide-react-native';
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Modal, Platform, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
@@ -173,7 +174,7 @@ export default function DriversScreen() {
     fetchDrivers(0, false);
   };
 
- const openAlert = (d: Driver, type: 'accident' | 'breakdown' | 'emergency') => {
+  const openAlert = (d: Driver, type: 'accident' | 'breakdown' | 'emergency') => {
     setAlertDriver(d);
     setAlertType(type);
     setAlertNote('');
@@ -185,7 +186,6 @@ export default function DriversScreen() {
     setAlertSaving(true);
     setAlertError('');
 
-    // Find this driver's current active route, if any
     const { data: activeRoute } = await supabase
       .from('routes')
       .select('id')
@@ -297,7 +297,12 @@ export default function DriversScreen() {
             const stats = statsMap[d.id];
             const assignedTruck = truckMap[d.id];
             return (
-              <View key={d.id} style={styles.card}>
+              <TouchableOpacity
+                key={d.id}
+                style={styles.card}
+                onPress={() => router.push(`/drivers/${d.id}`)}
+                activeOpacity={0.7}
+              >
                 <View style={styles.row}>
                   <View style={styles.avatar}><Text style={styles.avatarText}>{initials(d.full_name)}</Text></View>
                   <View style={{ flex: 1 }}>
@@ -308,6 +313,7 @@ export default function DriversScreen() {
                     <Text style={[styles.badgeText, { color: s.color }]}>{s.label}</Text>
                   </View>
                 </View>
+
                 <View style={styles.details}>
                   <View style={styles.detailRow}>
                     <Star size={12} color={colors.warning} />
@@ -361,7 +367,7 @@ export default function DriversScreen() {
                     <Text style={[styles.actionBtnText, { color: colors.destructive }]}>Delete</Text>
                   </TouchableOpacity>
                 </View>
-              </View>
+              </TouchableOpacity>
             );
           })
         )}
