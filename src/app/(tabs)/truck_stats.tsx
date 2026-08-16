@@ -1,5 +1,6 @@
+import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { supabase } from '../../../lib/supabase';
 import { colors, radius } from '../constants/theme';
 
@@ -7,23 +8,23 @@ type TruckStats = {
   truck_id: string;
   truck_code: string;
   model: string;
-  
+
   // 📊 Route Counts
   total_routes: number;
   total_deliveries: number;
-  
+
   // 📏 Distance & Fuel
   total_mileage_km: number;
   total_fuel_liters: number;
   avg_km_per_liter: number;
-  
+
   // 💰 Financial Stats
   total_revenue: number;
   total_expenses: number;
   total_profit_loss: number;
   avg_profit_per_route: number;
   total_fuel_cost: number;
-  
+
   // 🆕 Expense Breakdown
   total_road_tolls: number;
   total_other_expenses: number;
@@ -82,66 +83,73 @@ export default function TruckStatsScreen() {
         <Text style={styles.emptyText}>No truck statistics found.</Text>
       ) : (
         trucks.map((truck) => (
-          <View key={truck.truck_id} style={styles.truckCard}>
+          <TouchableOpacity
+            key={truck.truck_id}
+            style={styles.truckCard}
+            onPress={() => router.push(`/trucks/${truck.truck_id}`)}
+            activeOpacity={0.7}
+          >
             {/* Truck Header */}
             <View style={styles.truckHeader}>
               <Text style={styles.truckCode}>{truck.model} - {truck.truck_code}</Text>
             </View>
-{/* Section 1: Operational Stats */}
-<Text style={styles.sectionTitle}>Operational</Text>
-<View style={styles.operationalCard}>
-  <View style={styles.operationalItem}>
-    <Text style={styles.opLabel}>Routes Taken:</Text>
-    <Text style={styles.opValue}>{truck.total_routes}</Text>
-  </View>
-  <View style={styles.operationalItem}>
-    <Text style={styles.opLabel}>Successful Deliveries:</Text>
-    <Text style={styles.opValue}>{truck.total_deliveries}</Text>
-  </View>
-  <View style={styles.operationalItem}>
-    <Text style={styles.opLabel}>Total Routes Mileage:</Text>
-    <Text style={styles.opValue}>{truck.total_mileage_km.toFixed(0)} Kilometres</Text>
-  </View>
-  <View style={styles.operationalItem}>
-    <Text style={styles.opLabel}>Total Fuel Consumption:</Text>
-    <Text style={styles.opValue}>{truck.total_fuel_liters.toFixed(0)} Litres</Text>
-  </View>
-  <View style={styles.operationalItem}>
-    <Text style={styles.opLabel}>Average Fuel Consumption:</Text>
-    <Text style={styles.opValue}>{truck.avg_km_per_liter.toFixed(2)} kilometres/litre</Text>
-  </View>
-</View>
+
+            {/* Section 1: Operational Stats */}
+            <Text style={styles.sectionTitle}>Operational</Text>
+            <View style={styles.operationalCard}>
+              <View style={styles.operationalItem}>
+                <Text style={styles.opLabel}>Routes Taken:</Text>
+                <Text style={styles.opValue}>{truck.total_routes}</Text>
+              </View>
+              <View style={styles.operationalItem}>
+                <Text style={styles.opLabel}>Successful Deliveries:</Text>
+                <Text style={styles.opValue}>{truck.total_deliveries}</Text>
+              </View>
+              <View style={styles.operationalItem}>
+                <Text style={styles.opLabel}>Total Routes Mileage:</Text>
+                <Text style={styles.opValue}>{truck.total_mileage_km.toFixed(0)} Kilometres</Text>
+              </View>
+              <View style={styles.operationalItem}>
+                <Text style={styles.opLabel}>Total Fuel Consumption:</Text>
+                <Text style={styles.opValue}>{truck.total_fuel_liters.toFixed(0)} Litres</Text>
+              </View>
+              <View style={styles.operationalItem}>
+                <Text style={styles.opLabel}>Average Fuel Consumption:</Text>
+                <Text style={styles.opValue}>{truck.avg_km_per_liter.toFixed(2)} kilometres/litre</Text>
+              </View>
+            </View>
+
             {/* Divider */}
             <View style={styles.divider} />
 
             {/* Section 2: Financial Stats */}
             <Text style={styles.sectionTitle}>💰 Financial</Text>
             <View style={styles.financialGrid}>
-              
+
               {/* Total Revenue */}
               <View style={styles.finRow}>
                 <Text style={styles.finLabel}>Total Revenue</Text>
                 <Text style={styles.finValue}>TZS {formatCurrency(truck.total_revenue)}</Text>
               </View>
-              
+
               {/* Total Fuel Cost */}
               <View style={styles.finRow}>
                 <Text style={styles.finLabel}>Total Fuel Cost</Text>
                 <Text style={[styles.finValue, styles.expenseValue]}>TZS {formatCurrency(truck.total_fuel_cost)}</Text>
               </View>
-              
+
               {/* Total Road Tolls & Permits */}
               <View style={styles.finRow}>
                 <Text style={styles.finLabel}>Road Tolls & Permits</Text>
                 <Text style={[styles.finValue, styles.expenseValue]}>TZS {formatCurrency(truck.total_road_tolls)}</Text>
               </View>
-              
+
               {/* Total Other Expenses */}
               <View style={styles.finRow}>
                 <Text style={styles.finLabel}>Other Expenses</Text>
                 <Text style={[styles.finValue, styles.expenseValue]}>TZS {formatCurrency(truck.total_other_expenses)}</Text>
               </View>
-              
+
               {/* Total Expenses */}
               <View style={[styles.finRow, styles.totalRow]}>
                 <Text style={[styles.finLabel, styles.totalLabel]}>Total Expenses</Text>
@@ -149,25 +157,25 @@ export default function TruckStatsScreen() {
                   TZS {formatCurrency(truck.total_expenses)}
                 </Text>
               </View>
-              
+
               {/* Total Profit/Loss */}
-<View style={[styles.finRow, styles.profitRow]}>
-  <Text style={[
-    styles.finLabel, 
-    styles.totalLabel,
-    truck.total_profit_loss >= 0 ? styles.profitValue : styles.lossValue
-  ]}>
-    {truck.total_profit_loss >= 0 ? 'TOTAL PROFIT' : 'LOSS'}
-  </Text>
-  <Text style={[
-    styles.finValue, 
-    styles.totalValue,
-    truck.total_profit_loss >= 0 ? styles.profitValue : styles.lossValue
-  ]}>
-    TZS {formatCurrency(truck.total_profit_loss)}
-  </Text>
-</View>
-              
+              <View style={[styles.finRow, styles.profitRow]}>
+                <Text style={[
+                  styles.finLabel,
+                  styles.totalLabel,
+                  truck.total_profit_loss >= 0 ? styles.profitValue : styles.lossValue
+                ]}>
+                  {truck.total_profit_loss >= 0 ? 'TOTAL PROFIT' : 'LOSS'}
+                </Text>
+                <Text style={[
+                  styles.finValue,
+                  styles.totalValue,
+                  truck.total_profit_loss >= 0 ? styles.profitValue : styles.lossValue
+                ]}>
+                  TZS {formatCurrency(truck.total_profit_loss)}
+                </Text>
+              </View>
+
               {/* Avg Profit per Route */}
               <View style={styles.finRow}>
                 <Text style={styles.finLabel}>Avg Profit/Route</Text>
@@ -179,7 +187,7 @@ export default function TruckStatsScreen() {
                 </Text>
               </View>
             </View>
-          </View>
+          </TouchableOpacity>
         ))
       )}
     </ScrollView>
@@ -241,32 +249,31 @@ const styles = StyleSheet.create({
     color: colors.mutedForeground,
     marginBottom: 10,
   },
-    operationalCard: {
-  flexDirection: 'row',
-  flexWrap: 'wrap',
-  backgroundColor: colors.background,
-  borderRadius: radius,
-  paddingVertical: 10,
-  paddingHorizontal: 12,
-  columnGap: 14,
-  rowGap: 8,
-},
-operationalItem: {
-  flexDirection: 'row',
-  alignItems: 'baseline',
-  gap: 5,
-},
-opLabel: {
-  fontSize: 13,
-  color: colors.mutedForeground,
-},
-opValue: {
-  fontSize: 14,
-  fontWeight: '700',
-  color: colors.success,
-},
-
-    statsList: {
+  operationalCard: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    backgroundColor: colors.background,
+    borderRadius: radius,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    columnGap: 14,
+    rowGap: 8,
+  },
+  operationalItem: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 5,
+  },
+  opLabel: {
+    fontSize: 13,
+    color: colors.mutedForeground,
+  },
+  opValue: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.success,
+  },
+  statsList: {
     gap: 2,
   },
   statRow: {
@@ -275,7 +282,6 @@ opValue: {
     alignItems: 'center',
     paddingVertical: 2,
   },
-
   divider: {
     height: 1,
     backgroundColor: colors.border,
