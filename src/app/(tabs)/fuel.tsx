@@ -1,3 +1,4 @@
+import { router } from 'expo-router';
 import { Fuel as FuelIcon, Plus, X } from 'lucide-react-native';
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, FlatList, Modal, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
@@ -7,7 +8,6 @@ import { colors, radius } from '../constants/theme';
 type FuelLog = {
   id: string;
   truck_code: string;
-  plate_number: string;
   liters: number;
   price_per_liter: number;
   cost: number;
@@ -156,6 +156,23 @@ export default function FuelScreen() {
     o.label.toLowerCase().includes(pickerSearch.toLowerCase())
   );
 
+  const [truckModels, setTruckModels] = useState<Record<string, string>>({});
+
+const fetchTruckModels = useCallback(async () => {
+  const { data } = await supabase.from('trucks').select('truck_code, model');
+  if (data) {
+    const map: Record<string, string> = {};
+    data.forEach((t: any) => { map[t.truck_code] = t.model; });
+    setTruckModels(map);
+  }
+}, []);
+
+useEffect(() => {
+  fetchLogs(0, false);
+  fetchTotals();
+  fetchTruckModels();
+}, [fetchLogs, fetchTotals, fetchTruckModels]);
+
   if (loading) {
     return <View style={styles.centered}><ActivityIndicator color={colors.primary} size="large" /></View>;
   }
@@ -172,11 +189,11 @@ export default function FuelScreen() {
         <View style={styles.statsRow}>
           <View style={styles.statCard}>
             <Text style={styles.statLabel}>TOTAL LITERS</Text>
-            <Text style={styles.statValue}>{totals.liters.toLocaleString()} L</Text>
+            <Text style={styles.statValue}>{totals.liters.toLocaleString()} Liters</Text>
           </View>
           <View style={styles.statCard}>
             <Text style={styles.statLabel}>TOTAL COST</Text>
-            <Text style={styles.statValue}>TZS {totals.cost.toLocaleString()}</Text>
+            <Text style={styles.statValue}>Tshs {totals.cost.toLocaleString()}</Text>
           </View>
         </View>
 
@@ -191,21 +208,23 @@ export default function FuelScreen() {
           <Text style={styles.emptyText}>No fuel logs yet.</Text>
         ) : (
           logs.map((l) => (
-            <View key={l.id} style={styles.card}>
+            <TouchableOpacity key={l.id} style={styles.card} onPress={() => router.push (`/fuel/${l.id}`as any)}>
               <View style={styles.row}>
                 <View style={styles.iconWrap}><FuelIcon size={16} color={colors.accent} /></View>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.name}>{l.truck_code}- {l.plate_number}</Text>
+                  <Text style={styles.name}>
+  {truckModels[l.truck_code] ? `${truckModels[l.truck_code].toUpperCase()} - ` : ''}{l.truck_code}
+</Text>
                   <Text style={styles.code}>
                     {l.route?.client_name ? `${l.route.client_name} · ` : ''}{l.station || 'Unknown station'} · {l.logged_date}
                   </Text>
                 </View>
                 <View style={{ alignItems: 'flex-end' }}>
-                  <Text style={styles.liters}>{l.liters} L</Text>
-                  <Text style={styles.cost}>TZS {Number(l.cost).toLocaleString()}</Text>
+                  <Text style={styles.liters}>{l.liters} Liters</Text>
+                  <Text style={styles.cost}>Tshs {Number(l.cost).toLocaleString()}</Text>
                 </View>
               </View>
-            </View>
+            </TouchableOpacity>
           ))
         )}
 
@@ -241,16 +260,16 @@ export default function FuelScreen() {
               <Text style={styles.fieldLabel}>Liters</Text>
               <TextInput style={styles.input} value={liters} onChangeText={setLiters} keyboardType="numeric" placeholder="e.g. 245" />
 
-              <Text style={styles.fieldLabel}>Price per Liter (TZS)</Text>
+              <Text style={styles.fieldLabel}>Price per Liter (Tshs)</Text>
               <TextInput style={styles.input} value={pricePerLiter} onChangeText={setPricePerLiter} keyboardType="numeric" placeholder="e.g. 2850" />
 
               {liters && pricePerLiter ? (
                 <Text style={styles.calcPreview}>
-                  Total cost: TZS {(Number(liters) * Number(pricePerLiter)).toLocaleString()}
+                  Total cost: Tshs {(Number(liters) * Number(pricePerLiter)).toLocaleString()}
                 </Text>
               ) : null}
 
-              <Text style={styles.fieldLabel}>Station</Text>
+              <Text style={styles.fieldLabel}>Station:</Text>
               <TextInput style={styles.input} value={station} onChangeText={setStation} placeholder="e.g. PUMA Nyerere Rd" />
 
               <Text style={styles.fieldLabel}>Date</Text>

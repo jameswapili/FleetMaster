@@ -35,8 +35,11 @@ type RouteDetail = {
 type FuelLogRow = {
   id: string;
   liters: number;
+  price_per_liter: number;
   cost: number;
-  logged_at: string;
+  station: string | null;
+  logged_date: string;
+  truck_code: string;
 };
 
 const statusMap = {
@@ -84,11 +87,12 @@ export default function RouteDetailScreen() {
         .select('*, driver:drivers(id, full_name), truck:trucks(id, truck_code, model)')
         .eq('id', id)
         .single(),
+
       supabase
-        .from('fuel_logs')
-        .select('id, liters, cost, logged_at')
-        .eq('route_id', id)
-        .order('logged_at', { ascending: false }),
+  .from('fuel_logs')
+  .select('id, liters, price_per_liter, cost, station, logged_date, truck_code')
+  .eq('route_id', id)
+  .order('logged_date', { ascending: false }),
     ]);
 
     if (routeRes.error) {
@@ -255,14 +259,19 @@ export default function RouteDetailScreen() {
         <Text style={styles.emptyText}>No fuel logs recorded for this route.</Text>
       ) : (
         fuelLogs.map((f) => (
-          <View key={f.id} style={styles.listCard}>
-            <View style={styles.rowBetween}>
-              <Text style={styles.listCardTitle}>{f.liters.toFixed(0)} L</Text>
-              <Text style={styles.listCardAmount}>TZS {formatCurrency(f.cost)}</Text>
-            </View>
-            <Text style={styles.pathText}>{new Date(f.logged_at).toLocaleDateString()}</Text>
-          </View>
-        ))
+  <View key={f.id} style={styles.listCard}>
+    <View style={styles.rowBetween}>
+      <Text style={styles.listCardTitle}>Fuel fill-up: {f.liters.toFixed(0)} Liters @ Tshs {formatCurrency(f.price_per_liter)} per Liter </Text>
+      <Text style={styles.listCardAmount}>TZS {formatCurrency(f.cost)}</Text>
+    </View>
+    <Text style={styles.pathText}>
+      Station: {f.station || 'Unknown station'}
+    </Text>
+    <Text style={styles.pathText}>
+  Date: {new Date(f.logged_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).toUpperCase()}
+</Text> 
+  </View>
+))
       )}
     </ScrollView>
   );
