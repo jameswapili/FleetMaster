@@ -14,21 +14,22 @@ export default function SignUpScreen() {
   const [success, setSuccess] = useState(false);
 
   const handleSignUp = async () => {
-    setError('');
-    if (!fullName || !email || !password || !confirmPassword) {
-      setError('Please fill in all fields');
-      return;
-    }
-    if (password.length < 6) {
-      setError('Password must be at least 6 characters');
-      return;
-    }
-    if (password !== confirmPassword) {
-      setError('Passwords do not match');
-      return;
-    }
+  setError('');
+  if (!fullName || !email || !password || !confirmPassword) {
+    setError('Please fill in all fields');
+    return;
+  }
+  if (password.length < 6) {
+    setError('Password must be at least 6 characters');
+    return;
+  }
+  if (password !== confirmPassword) {
+    setError('Passwords do not match');
+    return;
+  }
 
-    setLoading(true);
+  setLoading(true);
+  try {
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
@@ -36,28 +37,25 @@ export default function SignUpScreen() {
         data: { full_name: fullName },
       },
     });
-    setLoading(false);
 
     if (error) {
       setError(error.message);
       return;
     }
 
-    if (data.session) {
-      // Email confirmation is off — user is signed in immediately
-      router.replace('/(tabs)/dashboard' as any);
-    } else {
-      // Email confirmation required
-      setSuccess(true);
-    }
-  };
-
+    setSuccess(true);
+  } catch (err: any) {
+    setError(err?.message || 'Something went wrong. Please try again.');
+  } finally {
+    setLoading(false);
+  }
+};
   if (success) {
     return (
       <View style={styles.container}>
-        <Text style={styles.title}>Check your email</Text>
+        <Text style={styles.title}>Account Created</Text>
         <Text style={styles.subtitle}>
-          We sent a confirmation link to {email}. Confirm your email, then sign in.
+          Your account is pending admin review. You'll be assigned a department and approved before you can sign in.
         </Text>
         <TouchableOpacity style={styles.button} onPress={() => router.replace('/login')}>
           <Text style={styles.buttonText}>Back to Sign In</Text>

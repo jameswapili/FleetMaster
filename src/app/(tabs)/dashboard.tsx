@@ -1,7 +1,9 @@
+import { router } from 'expo-router';
 import { AlertTriangle, Fuel, Info, MapPin, TrendingDown, TrendingUp, Truck, Users } from 'lucide-react-native';
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Dimensions, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Dimensions, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { BarChart, LineChart, PieChart } from 'react-native-gifted-charts';
+import { useAuth } from '../../../lib/AuthContext';
 import { supabase } from '../../../lib/supabase';
 import { colors, radius } from '../constants/theme';
 
@@ -77,6 +79,7 @@ function StatCard({
 }
 
 export default function DashboardScreen() {
+  const { profile } = useAuth();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
@@ -86,6 +89,8 @@ export default function DashboardScreen() {
   const [routes, setRoutes] = useState<RouteRow[]>([]);
   const [fuelLogs, setFuelLogs] = useState<FuelRow[]>([]);
 
+  const isDriver = profile?.department === 'driver';
+
   const fetchData = useCallback(async () => {
     setError('');
     const sevenMonthsAgo = new Date();
@@ -93,19 +98,50 @@ export default function DashboardScreen() {
     sevenMonthsAgo.setDate(1);
     const cutoff = sevenMonthsAgo.toISOString();
 
+    if (isDriver) {
+      const [trucksRes, routesRes, fuelRes] = await Promise.all([
+        supabase.from('trucks').select('id, truck_code, model, status, driver_id'),
+        supabase
+          .from('routes')
+          .select('id, status, created_at, client_name, origin, destination, profit_loss')
+          .order('created_at', { ascending: false })
+          .limit(5),
+        supabase
+          .from('fuel_logs')
+          .select('id, liters, cost, logged_at, truck_code')
+          .order('logged_at', { ascending: false })
+          .limit(5),
+      ]);
+      if (!trucksRes.error) setTrucks(trucksRes.data as TruckRow[]);
+      if (!routesRes.error) setRoutes(routesRes.data as RouteRow[]);
+      if (!fuelRes.error) setFuelLogs(fuelRes.data as FuelRow[]);
+      console.log('DRIVER TRUCKS:', JSON.stringify(trucksRes.data));
+      console.log('PROFILE DRIVER_ID:', profile?.driver_id);
+      setLoading(false);
+      setRefreshing(false);
+      return;
+    }
+
+    const needsFleet = ['admin', 'operations', 'maintenance'].includes(profile?.department || '');
+    const needsFinance = ['admin', 'finance'].includes(profile?.department || '');
+
     const [trucksRes, driversRes, routesRes, fuelRes] = await Promise.all([
-      supabase.from('trucks').select('id, truck_code, model, status, driver_id'),
-      supabase.from('drivers').select('id'),
+      needsFleet
+        ? supabase.from('trucks').select('id, truck_code, model, status, driver_id')
+        : Promise.resolve({ data: [], error: null }),
+      needsFleet ? supabase.from('drivers').select('id') : Promise.resolve({ data: [], error: null }),
       supabase
         .from('routes')
         .select('id, status, created_at, client_name, origin, destination, profit_loss')
         .gte('created_at', cutoff)
         .order('created_at', { ascending: false }),
-      supabase
-        .from('fuel_logs')
-        .select('id, liters, cost, logged_at, truck_code')
-        .gte('logged_at', cutoff)
-        .order('logged_at', { ascending: false }),
+      needsFinance
+        ? supabase
+            .from('fuel_logs')
+            .select('id, liters, cost, logged_date, truck_code')
+            .gte('logged_date', cutoff)
+            .order('logged_date', { ascending: false })
+        : Promise.resolve({ data: [], error: null }),
     ]);
 
     if (trucksRes.error) setError(trucksRes.error.message);
@@ -117,18 +153,18 @@ export default function DashboardScreen() {
 
     setLoading(false);
     setRefreshing(false);
-  }, []);
+  }, [profile?.department, isDriver]);
 
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    if (profile) fetchData();
+  }, [fetchData, profile]);
 
   const onRefresh = () => {
     setRefreshing(true);
     fetchData();
   };
 
-  if (loading) {
+  if (loading || !profile) {
     return (
       <View style={styles.centered}>
         <ActivityIndicator color={colors.primary} size="large" />
@@ -144,9 +180,65 @@ export default function DashboardScreen() {
     );
   }
 
-  // ---- Derived stats ----
+  // ---- DRIVER VIEW ----
+  if (isDriver) {
+    const myTruck = trucks[0];
+    return (
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+      >
+        <Text style={styles.pageTitle}>Welcome, {profile.full_name}</Text>
+
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>My Truck</Text>
+          {myTruck ? (
+            <Text style={styles.infoText}>{myTruck.model.toUpperCase()} - {myTruck.truck_code} · {myTruck.status}</Text>
+          ) : (
+            <Text style={styles.emptyText}>No truck currently assigned.</Text>
+          )}
+        </View>
+
+        <TouchableOpacity style={styles.button} onPress={() => router.push('/(driver)/maintenance-request' as any)}>
+  <Text style={styles.buttonText}>Request Maintenance</Text>
+</TouchableOpacity>
+
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Recent Routes</Text>
+          {routes.length === 0 ? (
+            <Text style={styles.emptyText}>No routes yet.</Text>
+          ) : (
+            routes.map((r) => (
+              <View key={r.id} style={styles.activityRow}>
+                <Text style={styles.activityText}>{r.client_name} ({r.origin} → {r.destination})</Text>
+                <Text style={styles.activityTime}>{r.status}</Text>
+              </View>
+            ))
+          )}
+        </View>
+
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Recent Fuel Logs</Text>
+          {fuelLogs.length === 0 ? (
+            <Text style={styles.emptyText}>No fuel logs yet.</Text>
+          ) : (
+            fuelLogs.map((f) => (
+              <View key={f.id} style={styles.activityRow}>
+                <Text style={styles.activityText}>{f.liters} L — TZS {formatCurrency(f.cost)}</Text>
+                <Text style={styles.activityTime}>{new Date(f.logged_at).toLocaleDateString()}</Text>
+              </View>
+            ))
+          )}
+        </View>
+      </ScrollView>
+    );
+  }
+
+  // ---- FLEET-WIDE VIEW ----
   const activeCount = trucks.filter((t) => t.status === 'active').length;
   const driversOnDuty = trucks.filter((t) => t.status === 'active' && t.driver_id).length;
+  const myTruck = trucks.find((t) => t.driver_id === profile.driver_id && profile.driver_id != null) || null;
 
   const todayStr = new Date().toDateString();
   const routesToday = routes.filter((r) => new Date(r.created_at).toDateString() === todayStr);
@@ -163,7 +255,7 @@ export default function DashboardScreen() {
       return d.getFullYear() === m.year && d.getMonth() === m.month;
     }).length,
     label: m.label,
-    frontColor: '#fca5a5',
+    frontColor: colors.primary,
   }));
 
   const fuelChartData = months.map((m) => ({
@@ -195,14 +287,18 @@ export default function DashboardScreen() {
   const fuelTrendPct =
     fuelCostLastMonth > 0 ? (((fuelCostThisMonth - fuelCostLastMonth) / fuelCostLastMonth) * 100).toFixed(1) : null;
 
+  const dept = profile.department || '';
+  const showFleetWidgets = ['admin', 'operations', 'maintenance'].includes(dept);
+  const showFinanceWidgets = ['admin', 'finance'].includes(dept);
+
   const statCards = [
-    {
+    showFleetWidgets && {
       icon: Truck,
       label: 'ACTIVE FLEET',
       value: `${activeCount} / ${trucks.length}`,
       sub: 'Trucks currently active',
     },
-    {
+    showFleetWidgets && {
       icon: Users,
       label: 'DRIVERS ON DUTY',
       value: `${driversOnDuty} / ${totalDrivers}`,
@@ -216,7 +312,7 @@ export default function DashboardScreen() {
       trend: tripsTrendPct != null ? `${tripsTrendPct}% vs last month` : undefined,
       up: tripsTrendPct != null ? Number(tripsTrendPct) >= 0 : undefined,
     },
-    {
+    showFinanceWidgets && {
       icon: Fuel,
       label: 'FUEL COST (MTD)',
       value: `TZS ${formatCurrency(fuelCostThisMonth)}`,
@@ -224,34 +320,38 @@ export default function DashboardScreen() {
       trend: fuelTrendPct != null ? `${fuelTrendPct}% vs last month` : undefined,
       up: fuelTrendPct != null ? Number(fuelTrendPct) < 0 : undefined,
     },
-  ];
+  ].filter(Boolean) as any[];
 
   const fleetStatus = [
     { value: activeCount, color: colors.chart3, text: 'Active', count: activeCount },
-    { value: trucks.filter((t) => t.status === 'idle').length, color: '#94a3b8', text: 'Idle', count: trucks.filter((t) => t.status === 'idle').length },
+    { value: trucks.filter((t) => t.status === 'idle').length, color: colors.chart4, text: 'Idle', count: trucks.filter((t) => t.status === 'idle').length },
     { value: trucks.filter((t) => t.status === 'maintenance').length, color: colors.chart2, text: 'Maintenance', count: trucks.filter((t) => t.status === 'maintenance').length },
     { value: trucks.filter((t) => t.status === 'breakdown').length, color: colors.chart5, text: 'Breakdown', count: trucks.filter((t) => t.status === 'breakdown').length },
   ];
 
   // ---- Alerts ----
   const alerts: Alert[] = [];
-  trucks
-    .filter((t) => t.status === 'breakdown')
-    .forEach((t) => alerts.push({ level: 'critical', text: `${t.truck_code} (${t.model}) is marked as breakdown.` }));
-  trucks
-    .filter((t) => t.status === 'maintenance')
-    .forEach((t) => alerts.push({ level: 'warning', text: `${t.truck_code} (${t.model}) is under maintenance.` }));
+  if (showFleetWidgets) {
+    trucks
+      .filter((t) => t.status === 'breakdown')
+      .forEach((t) => alerts.push({ level: 'critical', text: `${t.truck_code} (${t.model}) is marked as breakdown.` }));
+    trucks
+      .filter((t) => t.status === 'maintenance')
+      .forEach((t) => alerts.push({ level: 'warning', text: `${t.truck_code} (${t.model}) is under maintenance.` }));
+  }
   const thirtyDaysAgo = new Date();
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-  routes
-    .filter((r) => Number(r.profit_loss) < 0 && new Date(r.created_at) >= thirtyDaysAgo)
-    .slice(0, 5)
-    .forEach((r) =>
-      alerts.push({
-        level: 'warning',
-        text: `Route "${r.client_name}" (${r.origin} → ${r.destination}) is running at a loss: TZS ${formatCurrency(Math.abs(r.profit_loss))}.`,
-      })
-    );
+  if (showFinanceWidgets) {
+    routes
+      .filter((r) => Number(r.profit_loss) < 0 && new Date(r.created_at) >= thirtyDaysAgo)
+      .slice(0, 5)
+      .forEach((r) =>
+        alerts.push({
+          level: 'warning',
+          text: `Route "${r.client_name}" (${r.origin} → ${r.destination}) is running at a loss: TZS ${formatCurrency(Math.abs(r.profit_loss))}.`,
+        })
+      );
+  }
 
   // ---- Recent activity ----
   const activity: ActivityItem[] = [
@@ -259,10 +359,12 @@ export default function DashboardScreen() {
       text: `New route created: ${r.client_name} (${r.origin} → ${r.destination})`,
       time: new Date(r.created_at),
     })),
-    ...fuelLogs.slice(0, 5).map((f) => ({
-      text: `Fuel logged: ${f.liters} L for ${f.truck_code} — TZS ${formatCurrency(f.cost)}`,
-      time: new Date(f.logged_at),
-    })),
+    ...(showFinanceWidgets
+      ? fuelLogs.slice(0, 5).map((f) => ({
+          text: `Fuel logged: ${f.liters} L for ${f.truck_code} — TZS ${formatCurrency(f.cost)}`,
+          time: new Date(f.logged_at),
+        }))
+      : []),
   ]
     .sort((a, b) => b.time.getTime() - a.time.getTime())
     .slice(0, 5);
@@ -281,40 +383,44 @@ export default function DashboardScreen() {
         ))}
       </View>
 
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>Fuel Consumption</Text>
-        <Text style={styles.cardSubtitle}>Last 7 months (litres)</Text>
-        <LineChart
-          data={fuelChartData}
-          width={chartWidth}
-          height={180}
-          color={colors.accent}
-          thickness={2}
-          curved
-          hideDataPoints
-          yAxisTextStyle={{ color: colors.mutedForeground, fontSize: 10 }}
-          xAxisLabelTextStyle={{ color: colors.mutedForeground, fontSize: 10 }}
-          noOfSections={4}
-          rulesColor={colors.border}
-        />
-      </View>
+      {showFinanceWidgets && (
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Fuel Consumption</Text>
+          <Text style={styles.cardSubtitle}>Last 7 months (litres)</Text>
+          <LineChart
+            data={fuelChartData}
+            width={chartWidth}
+            height={180}
+            color={colors.accent}
+            thickness={2}
+            curved
+            hideDataPoints
+            yAxisTextStyle={{ color: colors.mutedForeground, fontSize: 10 }}
+            xAxisLabelTextStyle={{ color: colors.mutedForeground, fontSize: 10 }}
+            noOfSections={4}
+            rulesColor={colors.border}
+          />
+        </View>
+      )}
 
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>Fleet Status</Text>
-        <Text style={styles.cardSubtitle}>{trucks.length} vehicles total</Text>
-        <View style={styles.donutRow}>
-          <PieChart data={fleetStatus} donut radius={70} innerRadius={45} />
-          <View style={styles.legend}>
-            {fleetStatus.map((f, i) => (
-              <View key={i} style={styles.legendItem}>
-                <View style={[styles.legendDot, { backgroundColor: f.color }]} />
-                <Text style={styles.legendText}>{f.text}</Text>
-                <Text style={styles.legendCount}>{f.count}</Text>
-              </View>
-            ))}
+      {showFleetWidgets && (
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Fleet Status</Text>
+          <Text style={styles.cardSubtitle}>{trucks.length} vehicles total</Text>
+          <View style={styles.donutRow}>
+            <PieChart data={fleetStatus} donut radius={70} innerRadius={45} />
+            <View style={styles.legend}>
+              {fleetStatus.map((f, i) => (
+                <View key={i} style={styles.legendItem}>
+                  <View style={[styles.legendDot, { backgroundColor: f.color }]} />
+                  <Text style={styles.legendText}>{f.text}</Text>
+                  <Text style={styles.legendCount}>{f.count}</Text>
+                </View>
+              ))}
+            </View>
           </View>
         </View>
-      </View>
+      )}
 
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Monthly Trips</Text>
@@ -355,33 +461,39 @@ export default function DashboardScreen() {
         )}
       </View>
 
-      <View style={styles.card}>
-        <View style={styles.rowBetween}>
-          <Text style={styles.cardTitle}>Alerts & Warnings</Text>
+      {showFleetWidgets && (
+        <View style={styles.card}>
+          <View style={styles.rowBetween}>
+            <Text style={styles.cardTitle}>Alerts & Warnings</Text>
+          </View>
+          <Text style={styles.cardSubtitle}>{alerts.length} active</Text>
+          {alerts.length === 0 ? (
+            <Text style={styles.emptyText}>No active alerts.</Text>
+          ) : (
+            alerts.map((a, i) => {
+              const bg = a.level === 'critical' ? '#fef2f2' : a.level === 'warning' ? '#fffbeb' : '#eff6ff';
+              const iconColor = a.level === 'critical' ? colors.destructive : a.level === 'warning' ? colors.warning : colors.info;
+              return (
+                <View key={i} style={[styles.alertBox, { backgroundColor: bg }]}>
+                  {a.level === 'info' ? <Info size={16} color={iconColor} /> : <AlertTriangle size={16} color={iconColor} />}
+                  <Text style={styles.alertText}>{a.text}</Text>
+                </View>
+              );
+            })
+          )}
         </View>
-        <Text style={styles.cardSubtitle}>{alerts.length} active</Text>
-        {alerts.length === 0 ? (
-          <Text style={styles.emptyText}>No active alerts.</Text>
-        ) : (
-          alerts.map((a, i) => {
-            const bg = a.level === 'critical' ? '#fef2f2' : a.level === 'warning' ? '#fffbeb' : '#eff6ff';
-            const iconColor = a.level === 'critical' ? colors.destructive : a.level === 'warning' ? colors.warning : colors.info;
-            return (
-              <View key={i} style={[styles.alertBox, { backgroundColor: bg }]}>
-                {a.level === 'info' ? <Info size={16} color={iconColor} /> : <AlertTriangle size={16} color={iconColor} />}
-                <Text style={styles.alertText}>{a.text}</Text>
-              </View>
-            );
-          })
-        )}
-      </View>
+      )}
     </ScrollView>
   );
 }
 
+
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.background },
+  infoText: { fontSize: 13, color: colors.foreground },
+  button: { backgroundColor: colors.primary, borderRadius: radius, padding: 14, alignItems: 'center', marginBottom: 12 },
+buttonText: { color: '#fff', fontWeight: '700', fontSize: 14 },
   errorText: { color: colors.destructive, textAlign: 'center' },
   emptyText: { fontSize: 12, color: colors.mutedForeground, marginTop: 8 },
   pageTitle: { fontSize: 22, fontWeight: '700', color: colors.foreground, marginBottom: 16 },

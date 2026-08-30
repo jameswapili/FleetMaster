@@ -177,7 +177,7 @@ export default function DriverDetailScreen() {
       </View>
 
       {/* Operational Stats */}
-      <Text style={styles.sectionTitle}>Operational</Text>
+      <Text style={styles.sectionTitle}>Driver's Operational Statistics</Text>
       <View style={styles.operationalCard}>
         <View style={styles.operationalItem}>
           <Text style={styles.opLabel}>Total Routes Taken:</Text>
@@ -202,7 +202,7 @@ export default function DriverDetailScreen() {
       </View>
 
       {/* Financial Stats */}
-      <Text style={styles.sectionTitle}>Financial</Text>
+      <Text style={styles.sectionTitle}>Driver's Operational Financial Data</Text>
       <View style={styles.card}>
         <View style={styles.finRow}>
           <Text style={styles.finLabel}>Total Revenue</Text>
@@ -243,7 +243,7 @@ export default function DriverDetailScreen() {
       </View>
 
       {/* Recent Routes */}
-      <Text style={styles.sectionTitle}>Recent Routes</Text>
+      <Text style={styles.sectionTitle}>Driver's Recent Routes</Text>
       {routes.length === 0 ? (
         <Text style={styles.emptyText}>No routes for this driver yet.</Text>
       ) : (

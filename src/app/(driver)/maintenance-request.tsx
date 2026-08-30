@@ -1,280 +1,182 @@
 import { router } from 'expo-router';
-import { ArrowLeft } from 'lucide-react-native';
-import { useState } from 'react';
-import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { AlertTriangle, X } from 'lucide-react-native';
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { useAuth } from '../../../lib/AuthContext';
 import { supabase } from '../../../lib/supabase';
 import { colors, radius } from '../constants/theme';
 
-type MaintenanceType = 'preventive' | 'repair' | 'emergency' | 'inspection' | 'spare_part_replacement';
-type Priority = 'low' | 'medium' | 'high' | 'critical';
+const priorities = [
+  { value: 'low', label: 'Low' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'high', label: 'High' },
+  { value: 'critical', label: 'Critical' },
+];
 
 export default function MaintenanceRequestScreen() {
-  const [loading, setLoading] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState('');
-
+  const { profile } = useAuth();
+  const [truckCode, setTruckCode] = useState<string | null>(null);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [maintenanceType, setMaintenanceType] = useState<MaintenanceType>('repair');
-  const [priority, setPriority] = useState<Priority>('medium');
-  const [odometerKm, setOdometerKm] = useState('');
+  const [priority, setPriority] = useState('medium');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState(false);
 
-  const maintenanceTypes = [
-    { value: 'preventive', label: 'Preventive' },
-    { value: 'repair', label: 'Repair' },
-    { value: 'emergency', label: 'Emergency' },
-    { value: 'inspection', label: 'Inspection' },
-    { value: 'spare_part_replacement', label: 'Spare Part Replacement' },
-  ];
-
-  const priorities = [
-    { value: 'low', label: 'Low' },
-    { value: 'medium', label: 'Medium' },
-    { value: 'high', label: 'High' },
-    { value: 'critical', label: 'Critical' },
-  ];
+  useEffect(() => {
+    const fetchMyTruck = async () => {
+      if (!profile?.driver_id) {
+        setLoading(false);
+        return;
+      }
+      const { data } = await supabase
+        .from('trucks')
+        .select('truck_code')
+        .eq('driver_id', profile.driver_id)
+        .maybeSingle();
+      setTruckCode(data?.truck_code || null);
+      setLoading(false);
+    };
+    fetchMyTruck();
+  }, [profile?.driver_id]);
 
   const handleSubmit = async () => {
     setError('');
-    
-    if (!title || !description) {
-      setError('Please fill in all required fields');
+    if (!title || !truckCode) {
+      setError('Title is required, and you must have an assigned truck');
       return;
     }
-
-    setSubmitting(true);
-
-    // Get current user
-    const { data: { user } } = await supabase.auth.getUser();
-    
-    if (!user) {
-      setError('Please login first');
-      setSubmitting(false);
-      return;
-    }
-
-    // Get driver info
-    const { data: driverData, error: driverError } = await supabase
-      .from('drivers')
-      .select('id, truck_code')
-      .eq('user_id', user.id)
-      .maybeSingle();
-
-    if (driverError || !driverData) {
-      setError('Driver profile not found');
-      setSubmitting(false);
-      return;
-    }
-
-    // Submit maintenance request
-    const { error: insertError } = await supabase.from('maintenance_jobs').insert({
-      truck_code: driverData.truck_code,
-      maintenance_type: maintenanceType,
-      title: title,
-      description: description,
-      priority: priority,
+    setSaving(true);
+    const { error } = await supabase.from('maintenance_jobs').insert({
+      truck_code: truckCode,
+      maintenance_type: 'repair',
+      title,
+      description: description || null,
+      priority,
       status: 'requested',
-      odometer_km: odometerKm ? Number(odometerKm) : null,
-      requested_by: user.id,
-      created_by: user.id,
+      requested_by: profile?.full_name || null,
     });
-
-    setSubmitting(false);
-
-    if (insertError) {
-      setError(insertError.message);
+    setSaving(false);
+    if (error) {
+      setError(error.message);
       return;
     }
-
-    Alert.alert(
-      '✅ Success',
-      'Maintenance request submitted successfully!',
-      [{ text: 'OK', onPress: () => router.back() }]
-    );
+    setSuccess(true);
   };
 
+  if (loading) {
+    return (
+      <View style={styles.centered}>
+        <ActivityIndicator color={colors.primary} size="large" />
+      </View>
+    );
+  }
+
+  if (success) {
+    return (
+      <View style={styles.container}>
+        <Text style={styles.title}>Request Submitted</Text>
+        <Text style={styles.subtitle}>
+          Your maintenance request has been sent. The maintenance team will review it shortly.
+        </Text>
+        <TouchableOpacity style={styles.button} onPress={() => router.back()}>
+          <Text style={styles.buttonText}>Done</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  if (!truckCode) {
+    return (
+      <View style={styles.container}>
+        <AlertTriangle size={32} color={colors.warning} />
+        <Text style={styles.title}>No Truck Assigned</Text>
+        <Text style={styles.subtitle}>
+          You don't have a truck assigned yet, so you can't submit a maintenance request. Contact your administrator.
+        </Text>
+        <TouchableOpacity style={styles.button} onPress={() => router.back()}>
+          <Text style={styles.buttonText}>Back</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
   return (
-    <ScrollView style={styles.container}>
-      {/* Back Button */}
-      <TouchableOpacity style={styles.backRow} onPress={() => router.back()}>
-        <ArrowLeft size={20} color={colors.mutedForeground} />
-        <Text style={styles.backText}>Back</Text>
-      </TouchableOpacity>
-
-      <Text style={styles.header}>🔧 Request Maintenance</Text>
-      <Text style={styles.subHeader}>Submit a maintenance request for your truck</Text>
-
-      {error ? <Text style={styles.errorText}>{error}</Text> : null}
-
-      {/* Maintenance Type */}
-      <Text style={styles.fieldLabel}>Maintenance Type *</Text>
-      <View style={styles.segmentRow}>
-        {maintenanceTypes.map((type) => (
-          <TouchableOpacity
-            key={type.value}
-            style={[styles.segment, maintenanceType === type.value && styles.segmentActive]}
-            onPress={() => setMaintenanceType(type.value as MaintenanceType)}
-          >
-            <Text style={[styles.segmentText, maintenanceType === type.value && styles.segmentTextActive]}>
-              {type.label}
-            </Text>
+    <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <ScrollView contentContainerStyle={{ padding: 20 }}>
+        <View style={styles.headerRow}>
+          <Text style={styles.pageTitle}>Request Maintenance</Text>
+          <TouchableOpacity onPress={() => router.back()}>
+            <X size={22} color={colors.mutedForeground} />
           </TouchableOpacity>
-        ))}
-      </View>
+        </View>
 
-      {/* Priority */}
-      <Text style={styles.fieldLabel}>Priority *</Text>
-      <View style={styles.segmentRow}>
-        {priorities.map((p) => (
-          <TouchableOpacity
-            key={p.value}
-            style={[styles.segment, priority === p.value && styles.segmentActive]}
-            onPress={() => setPriority(p.value as Priority)}
-          >
-            <Text style={[styles.segmentText, priority === p.value && styles.segmentTextActive]}>
-              {p.label}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
+        <Text style={styles.truckLabel}>Truck: {truckCode}</Text>
 
-      {/* Title */}
-      <Text style={styles.fieldLabel}>Title *</Text>
-      <TextInput
-        style={styles.input}
-        value={title}
-        onChangeText={setTitle}
-        placeholder="e.g. Engine oil change needed"
-        placeholderTextColor={colors.mutedForeground}
-      />
+        {error ? <Text style={styles.error}>{error}</Text> : null}
 
-      {/* Description */}
-      <Text style={styles.fieldLabel}>Description *</Text>
-      <TextInput
-        style={[styles.input, styles.textArea]}
-        value={description}
-        onChangeText={setDescription}
-        placeholder="Describe the issue in detail..."
-        placeholderTextColor={colors.mutedForeground}
-        multiline
-        numberOfLines={4}
-        textAlignVertical="top"
-      />
+        <Text style={styles.fieldLabel}>Issue Title *</Text>
+        <TextInput
+          style={styles.input}
+          value={title}
+          onChangeText={setTitle}
+          placeholder="e.g. Brake pads worn out"
+          placeholderTextColor={colors.mutedForeground}
+        />
 
-      {/* Odometer */}
-      <Text style={styles.fieldLabel}>Odometer (KM)</Text>
-      <TextInput
-        style={styles.input}
-        value={odometerKm}
-        onChangeText={setOdometerKm}
-        keyboardType="numeric"
-        placeholder="e.g. 45230"
-        placeholderTextColor={colors.mutedForeground}
-      />
+        <Text style={styles.fieldLabel}>Description</Text>
+        <TextInput
+          style={[styles.input, styles.textArea]}
+          value={description}
+          onChangeText={setDescription}
+          placeholder="Describe the issue in detail..."
+          placeholderTextColor={colors.mutedForeground}
+          multiline
+          numberOfLines={4}
+          textAlignVertical="top"
+        />
 
-      {/* Submit Button */}
-      <TouchableOpacity 
-        style={styles.submitBtn} 
-        onPress={handleSubmit} 
-        disabled={submitting}
-      >
-        {submitting ? (
-          <ActivityIndicator color="#fff" />
-        ) : (
-          <Text style={styles.submitText}>Submit Request</Text>
-        )}
-      </TouchableOpacity>
-    </ScrollView>
+        <Text style={styles.fieldLabel}>Priority</Text>
+        <View style={styles.segmentRow}>
+          {priorities.map((p) => (
+            <TouchableOpacity
+              key={p.value}
+              style={[styles.segment, priority === p.value && styles.segmentActive]}
+              onPress={() => setPriority(p.value)}
+            >
+              <Text style={[styles.segmentText, priority === p.value && styles.segmentTextActive]}>
+                {p.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        <TouchableOpacity style={styles.button} onPress={handleSubmit} disabled={saving}>
+          {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Submit Request</Text>}
+        </TouchableOpacity>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.background,
-    padding: 16,
-  },
-  backRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 16,
-  },
-  backText: {
-    fontSize: 14,
-    color: colors.mutedForeground,
-  },
-  header: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: colors.foreground,
-    marginBottom: 4,
-  },
-  subHeader: {
-    fontSize: 14,
-    color: colors.mutedForeground,
-    marginBottom: 20,
-  },
-  errorText: {
-    color: colors.destructive,
-    marginBottom: 12,
-    textAlign: 'center',
-  },
-  fieldLabel: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: colors.foreground,
-    marginBottom: 6,
-    marginTop: 12,
-  },
-  input: {
-    backgroundColor: colors.card,
-    borderRadius: radius,
-    padding: 12,
-    fontSize: 14,
-    color: colors.foreground,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  textArea: {
-    minHeight: 100,
-  },
-  segmentRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  segment: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  segmentActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
-  },
-  segmentText: {
-    fontSize: 12,
-    color: colors.mutedForeground,
-  },
-  segmentTextActive: {
-    color: '#fff',
-    fontWeight: '600',
-  },
-  submitBtn: {
-    backgroundColor: colors.primary,
-    borderRadius: radius,
-    padding: 16,
-    alignItems: 'center',
-    marginTop: 24,
-    marginBottom: 40,
-  },
-  submitText: {
-    color: '#fff',
-    fontWeight: '700',
-    fontSize: 14,
-  },
+  container: { flex: 1, backgroundColor: colors.background, padding: 20, justifyContent: 'center' },
+  centered: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.background },
+  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
+  pageTitle: { fontSize: 20, fontWeight: '700', color: colors.foreground },
+  truckLabel: { fontSize: 13, color: colors.mutedForeground, marginBottom: 20 },
+  title: { fontSize: 20, fontWeight: '700', color: colors.foreground, textAlign: 'center', marginTop: 12, marginBottom: 8 },
+  subtitle: { fontSize: 14, color: colors.mutedForeground, textAlign: 'center', marginBottom: 24 },
+  error: { color: colors.destructive, marginBottom: 12, textAlign: 'center' },
+  fieldLabel: { fontSize: 12, fontWeight: '600', color: colors.foreground, marginBottom: 6, marginTop: 14 },
+  input: { backgroundColor: colors.card, borderRadius: radius, padding: 12, fontSize: 14, color: colors.foreground },
+  textArea: { minHeight: 90 },
+  segmentRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  segment: { paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8, backgroundColor: colors.card },
+  segmentActive: { backgroundColor: colors.primary },
+  segmentText: { fontSize: 12, color: colors.mutedForeground },
+  segmentTextActive: { color: '#fff', fontWeight: '600' },
+  button: { backgroundColor: colors.primary, borderRadius: radius, padding: 16, alignItems: 'center', marginTop: 24 },
+  buttonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
 });

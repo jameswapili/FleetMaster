@@ -176,18 +176,17 @@ export default function RouteDetailScreen() {
       <View style={styles.card}>
         <View style={styles.infoRow}>
           <User size={14} color={colors.mutedForeground} />
-          <Text style={styles.infoText}>{route.driver?.full_name || 'Unassigned'}</Text>
+          <Text style={styles.infoText}>Driver: {route.driver?.full_name || 'Unassigned'}</Text>
         </View>
         <View style={styles.infoRow}>
           <TruckIcon size={14} color={colors.mutedForeground} />
-          <Text style={styles.infoText}>
-            {route.truck ? `${route.truck.model.toUpperCase()} - ${route.truck.truck_code}` : 'Unassigned'}
+          <Text style={styles.infoText}>Truck: {route.truck ? `${route.truck.model.toUpperCase()} - ${route.truck.truck_code}` : 'Unassigned'}
           </Text>
         </View>
       </View>
 
       {/* Cargo */}
-      <Text style={styles.sectionTitle}>Cargo</Text>
+      <Text style={styles.sectionTitle}>Cargo Details</Text>
       <View style={styles.card}>
         {route.cargo_description ? (
           <Text style={styles.cargoDescription}>{route.cargo_description}</Text>
@@ -254,7 +253,7 @@ export default function RouteDetailScreen() {
       </View>
 
       {/* Fuel logs for this route */}
-      <Text style={styles.sectionTitle}>Fuel Logs</Text>
+      <Text style={styles.sectionTitle}>Route Fuel Logs</Text>
       {fuelLogs.length === 0 ? (
         <Text style={styles.emptyText}>No fuel logs recorded for this route.</Text>
       ) : (
@@ -262,8 +261,8 @@ export default function RouteDetailScreen() {
   <View key={f.id} style={styles.listCard}>
     <View style={styles.rowBetween}>
       <Text style={styles.listCardTitle}>Fuel fill-up: {f.liters.toFixed(0)} Liters @ Tshs {formatCurrency(f.price_per_liter)} per Liter </Text>
-      <Text style={styles.listCardAmount}>TZS {formatCurrency(f.cost)}</Text>
     </View>
+    <Text style={styles.listCardAmount}>Total Cost: Tshs {formatCurrency(f.cost)}</Text>
     <Text style={styles.pathText}>
       Station: {f.station || 'Unknown station'}
     </Text>

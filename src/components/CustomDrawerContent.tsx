@@ -12,44 +12,56 @@ import {
   Wrench,
 } from 'lucide-react-native';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useAuth } from '../../lib/AuthContext';
 import { colors } from '../constants/theme';
 
 const sections = [
   {
     label: null,
     items: [
-      { name: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-      { name: 'settings', label: 'Settings', icon: Settings },
+      { name: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, departments: ['admin', 'finance', 'operations', 'maintenance'] },
+      { name: 'settings', label: 'Settings', icon: Settings, departments: ['admin', 'finance', 'operations', 'maintenance', 'driver'] },
     ],
   },
   {
     label: 'PEOPLE',
     items: [
-      { name: 'employees', label: 'Employees', icon: Users },
-      { name: 'drivers', label: 'Drivers', icon: UserCheck },
+      { name: 'employees', label: 'Employees', icon: Users, departments: ['admin', 'operations'] },
+      { name: 'drivers', label: 'Drivers', icon: UserCheck, departments: ['admin', 'operations'] },
+      { name: 'approvals', label: 'User Approvals', icon: UserCheck, departments: ['admin'] },
     ],
   },
   {
     label: 'FLEET',
     items: [
-      { name: 'fleet', label: 'Fleet & Trucks', icon: Truck },
-      { name: 'fuel', label: 'Fuel Management', icon: Fuel },
-      { name: 'routes', label: 'Routes', icon: MapPin },
-      { name: 'maintenance', label: 'Maintenance', icon: Wrench },
-      { name: 'truck_stats', label: 'Truck Statistics', icon: BarChart3 },
+      { name: 'fleet', label: 'Fleet & Trucks', icon: Truck, departments: ['admin', 'operations'] },
+      { name: 'fuel', label: 'Fuel Management', icon: Fuel, departments: ['admin', 'finance'] },
+      { name: 'routes', label: 'Routes', icon: MapPin, departments: ['admin', 'operations', 'finance'] },
+      { name: 'maintenance', label: 'Maintenance', icon: Wrench, departments: ['admin', 'maintenance'] },
+      { name: 'truck_stats', label: 'Truck Statistics', icon: BarChart3, departments: ['admin', 'operations', 'maintenance'] },
     ],
   },
   {
     label: 'FINANCE',
     items: [
-      { name: 'payroll', label: 'Salaries & Payroll', icon: DollarSign },
-      { name: 'reports', label: 'Reports', icon: BarChart3 },
+      { name: 'payroll', label: 'Salaries & Payroll', icon: DollarSign, departments: ['admin', 'finance'] },
+      { name: 'reports', label: 'Reports', icon: BarChart3, departments: ['admin', 'finance'] },
     ],
   },
 ];
 
-export default function CustomDrawerContent(props:any) {
+export default function CustomDrawerContent(props: any) {
+  const { profile } = useAuth();
   const activeRoute = props.state.routeNames[props.state.index];
+
+  const visibleSections = sections
+    .map((section) => ({
+      ...section,
+      items: section.items.filter((item) =>
+        profile?.department ? item.departments.includes(profile.department) : false
+      ),
+    }))
+    .filter((section) => section.items.length > 0);
 
   return (
     <View style={styles.wrapper}>
@@ -64,7 +76,7 @@ export default function CustomDrawerContent(props:any) {
       </View>
 
       <DrawerContentScrollView {...props} style={{ backgroundColor: 'transparent' }}>
-        {sections.map((section, si) => (
+        {visibleSections.map((section, si) => (
           <View key={si} style={{ marginBottom: 8 }}>
             {section.label && <Text style={styles.sectionLabel}>{section.label}</Text>}
             {section.items.map((item) => {
@@ -87,17 +99,21 @@ export default function CustomDrawerContent(props:any) {
 
       <View style={styles.footer}>
         <View style={styles.avatar}>
-          <Text style={styles.avatarText}>KA</Text>
+          <Text style={styles.avatarText}>
+            {profile?.full_name ? profile.full_name.split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase() : '?'}
+          </Text>
         </View>
         <View style={{ flex: 1 }}>
-          <Text style={styles.userName}>Kwame Asante</Text>
-          <Text style={styles.userRole}>Fleet Manager</Text>
+          <Text style={styles.userName}>{profile?.full_name || 'Loading...'}</Text>
+          <Text style={styles.userRole}>{profile?.department ? profile.department.charAt(0).toUpperCase() + profile.department.slice(1) : ''}</Text>
         </View>
         <ChevronRight size={16} color="#cbd5e1" />
       </View>
     </View>
   );
 }
+
+// styles unchanged from your existing file
 
 const styles = StyleSheet.create({
   wrapper: { flex: 1, backgroundColor: colors.sidebar },
