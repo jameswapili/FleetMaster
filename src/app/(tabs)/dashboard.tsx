@@ -2,13 +2,12 @@ import { router } from 'expo-router';
 import { AlertTriangle, Fuel, Info, MapPin, TrendingDown, TrendingUp, Truck, Users } from 'lucide-react-native';
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Dimensions, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { BarChart, LineChart, PieChart } from 'react-native-gifted-charts';
+import { PieChart } from 'react-native-gifted-charts';
 import { useAuth } from '../../../lib/AuthContext';
 import { supabase } from '../../../lib/supabase';
 import { colors, radius } from '../constants/theme';
 
 const screenWidth = Dimensions.get('window').width;
-const chartWidth = screenWidth - 64;
 
 type TruckRow = { id: string; truck_code: string; model: string; status: string; driver_id: string | null };
 type RouteRow = {
@@ -19,8 +18,17 @@ type RouteRow = {
   origin: string;
   destination: string;
   profit_loss: number;
+  distance_km: number | null;
+  driver_allowance: number;
+  driver_acknowledged: boolean;
+  acknowledged_at: string | null;
+  started_at: string | null;
+  driver: { full_name: string } | null;
+  truck: { truck_code: string } | null;
 };
-type FuelRow = { id: string; liters: number; cost: number; logged_at: string; truck_code: string };
+
+type FuelRow = { id: string; liters: number; cost: number; logged_date: string; truck_code: string; route_id: string | null; station: string | null };
+type StatsRouteRow = { id: string; status: string; distance_km: number | null; driver_allowance: number };
 
 type Alert = { level: 'critical' | 'warning' | 'info'; text: string };
 type ActivityItem = { text: string; time: Date };
@@ -88,39 +96,55 @@ export default function DashboardScreen() {
   const [totalDrivers, setTotalDrivers] = useState(0);
   const [routes, setRoutes] = useState<RouteRow[]>([]);
   const [fuelLogs, setFuelLogs] = useState<FuelRow[]>([]);
+  const [allRoutesForStats, setAllRoutesForStats] = useState<StatsRouteRow[]>([]);
+  const [liveAlert, setLiveAlert] = useState<string | null>(null);
 
   const isDriver = profile?.department === 'driver';
 
   const fetchData = useCallback(async () => {
     setError('');
-    const sevenMonthsAgo = new Date();
-    sevenMonthsAgo.setMonth(sevenMonthsAgo.getMonth() - 6);
-    sevenMonthsAgo.setDate(1);
-    const cutoff = sevenMonthsAgo.toISOString();
 
     if (isDriver) {
-      const [trucksRes, routesRes, fuelRes] = await Promise.all([
+      const [trucksRes, latestRouteRes, allRoutesRes] = await Promise.all([
         supabase.from('trucks').select('id, truck_code, model, status, driver_id'),
         supabase
           .from('routes')
-          .select('id, status, created_at, client_name, origin, destination, profit_loss')
+          .select('id, status, created_at, client_name, origin, destination, profit_loss, distance_km, driver_allowance, driver_acknowledged, acknowledged_at, started_at')
           .order('created_at', { ascending: false })
-          .limit(5),
-        supabase
-          .from('fuel_logs')
-          .select('id, liters, cost, logged_at, truck_code')
-          .order('logged_at', { ascending: false })
-          .limit(5),
+          .limit(1)
+          .maybeSingle(),
+        supabase.from('routes').select('id, status, distance_km, driver_allowance'),
       ]);
+
       if (!trucksRes.error) setTrucks(trucksRes.data as TruckRow[]);
-      if (!routesRes.error) setRoutes(routesRes.data as RouteRow[]);
-      if (!fuelRes.error) setFuelLogs(fuelRes.data as FuelRow[]);
-      console.log('DRIVER TRUCKS:', JSON.stringify(trucksRes.data));
-      console.log('PROFILE DRIVER_ID:', profile?.driver_id);
+
+      const latestRoute = latestRouteRes.data as RouteRow | null;
+      setRoutes(latestRoute ? [latestRoute] : []);
+
+      const allRoutes = (allRoutesRes.data as StatsRouteRow[]) || [];
+      setAllRoutesForStats(allRoutes);
+
+      const routeIds = allRoutes.map((r) => r.id);
+      if (routeIds.length > 0) {
+        const fuelRes = await supabase
+          .from('fuel_logs')
+          .select('id, liters, cost, logged_date, truck_code, route_id, station')
+          .in('route_id', routeIds)
+          .order('logged_date', { ascending: false });
+        if (!fuelRes.error) setFuelLogs(fuelRes.data as FuelRow[]);
+      } else {
+        setFuelLogs([]);
+      }
+
       setLoading(false);
       setRefreshing(false);
       return;
     }
+
+    const sevenMonthsAgo = new Date();
+    sevenMonthsAgo.setMonth(sevenMonthsAgo.getMonth() - 6);
+    sevenMonthsAgo.setDate(1);
+    const cutoff = sevenMonthsAgo.toISOString();
 
     const needsFleet = ['admin', 'operations', 'maintenance'].includes(profile?.department || '');
     const needsFinance = ['admin', 'finance'].includes(profile?.department || '');
@@ -132,9 +156,10 @@ export default function DashboardScreen() {
       needsFleet ? supabase.from('drivers').select('id') : Promise.resolve({ data: [], error: null }),
       supabase
         .from('routes')
-        .select('id, status, created_at, client_name, origin, destination, profit_loss')
+        .select('id, status, created_at, client_name, origin, destination, profit_loss, acknowledged_at, started_at, driver:drivers(full_name), truck:trucks(truck_code)')
         .gte('created_at', cutoff)
-        .order('created_at', { ascending: false }),
+        .order('created_at', { ascending: false })
+        .limit(300),
       needsFinance
         ? supabase
             .from('fuel_logs')
@@ -146,9 +171,8 @@ export default function DashboardScreen() {
 
     if (trucksRes.error) setError(trucksRes.error.message);
     else setTrucks(trucksRes.data as TruckRow[]);
-
     if (!driversRes.error) setTotalDrivers((driversRes.data || []).length);
-    if (!routesRes.error) setRoutes(routesRes.data as RouteRow[]);
+    if (!routesRes.error) setRoutes(routesRes.data as unknown as RouteRow[]);
     if (!fuelRes.error) setFuelLogs(fuelRes.data as FuelRow[]);
 
     setLoading(false);
@@ -158,6 +182,29 @@ export default function DashboardScreen() {
   useEffect(() => {
     if (profile) fetchData();
   }, [fetchData, profile]);
+
+  useEffect(() => {
+    if (isDriver) return;
+    const channel = supabase
+      .channel('routes-updates')
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'routes' },
+        (payload: any) => {
+          if (payload.new.status === 'in_transit' && payload.old.status !== 'in_transit') {
+            setLiveAlert(`${payload.new.client_name} just started their journey`);
+            setTimeout(() => setLiveAlert(null), 8000);
+          } else if (payload.new.driver_acknowledged && !payload.old.driver_acknowledged) {
+            setLiveAlert(`Driver acknowledged route: ${payload.new.client_name}`);
+            setTimeout(() => setLiveAlert(null), 8000);
+          }
+        }
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [isDriver]);
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -182,7 +229,30 @@ export default function DashboardScreen() {
 
   // ---- DRIVER VIEW ----
   if (isDriver) {
-    const myTruck = trucks[0];
+    const myTruck = trucks.find((t) => t.driver_id === profile.driver_id && profile.driver_id != null) || null;
+    const latestRoute = routes[0] || null;
+    const currentRouteFuelLogs = latestRoute ? fuelLogs.filter((f) => f.route_id === latestRoute.id) : [];
+
+    const totalRoutes = allRoutesForStats.length;
+    const totalDeliveries = allRoutesForStats.filter((r) => r.status === 'delivered' || r.status === 'completed').length;
+    const totalAllowance = allRoutesForStats.reduce((sum, r) => sum + (Number(r.driver_allowance) || 0), 0);
+    const totalMileage = allRoutesForStats.reduce((sum, r) => sum + (Number(r.distance_km) || 0), 0);
+    const totalFuelLiters = fuelLogs.reduce((sum, f) => sum + Number(f.liters), 0);
+    const totalFuelCost = fuelLogs.reduce((sum, f) => sum + Number(f.cost), 0);
+    const avgKmPerLiter = totalFuelLiters > 0 ? (totalMileage / totalFuelLiters).toFixed(2) : '0.00';
+
+    const acknowledgeRoute = async () => {
+      if (!latestRoute) return;
+      await supabase.from('routes').update({ driver_acknowledged: true, acknowledged_at: new Date().toISOString() }).eq('id', latestRoute.id);
+      fetchData();
+    };
+
+    const startJourney = async () => {
+      if (!latestRoute) return;
+      await supabase.from('routes').update({ status: 'in_transit', started_at: new Date().toISOString() }).eq('id', latestRoute.id);
+      fetchData();
+    };
+
     return (
       <ScrollView
         style={styles.container}
@@ -201,35 +271,77 @@ export default function DashboardScreen() {
         </View>
 
         <TouchableOpacity style={styles.button} onPress={() => router.push('/(driver)/maintenance-request' as any)}>
-  <Text style={styles.buttonText}>Request Maintenance</Text>
-</TouchableOpacity>
+          <Text style={styles.buttonText}>Request Maintenance</Text>
+        </TouchableOpacity>
 
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Recent Routes</Text>
-          {routes.length === 0 ? (
-            <Text style={styles.emptyText}>No routes yet.</Text>
+          <Text style={styles.cardTitle}>Current Route</Text>
+          {latestRoute ? (
+            <>
+              <Text style={styles.infoText}>{latestRoute.client_name} ({latestRoute.origin} → {latestRoute.destination})</Text>
+              <Text style={styles.driverSmallSub}>{latestRoute.status}{latestRoute.distance_km ? ` · ${latestRoute.distance_km} km` : ''}</Text>
+              <Text style={styles.driverSmallSub}>Allowance: TZS {formatCurrency(latestRoute.driver_allowance)}</Text>
+
+              {!latestRoute.driver_acknowledged && (
+                <TouchableOpacity style={styles.ackButton} onPress={acknowledgeRoute}>
+                  <Text style={styles.buttonText}>Acknowledge New Route</Text>
+                </TouchableOpacity>
+              )}
+
+              {latestRoute.driver_acknowledged && latestRoute.status === 'planned' && (
+                <TouchableOpacity style={styles.startButton} onPress={startJourney}>
+                  <Text style={styles.buttonText}>Start Journey</Text>
+                </TouchableOpacity>
+              )}
+            </>
           ) : (
-            routes.map((r) => (
-              <View key={r.id} style={styles.activityRow}>
-                <Text style={styles.activityText}>{r.client_name} ({r.origin} → {r.destination})</Text>
-                <Text style={styles.activityTime}>{r.status}</Text>
+            <Text style={styles.emptyText}>No route assigned yet.</Text>
+          )}
+        </View>
+
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Fuel Logs (Current Route)</Text>
+          {currentRouteFuelLogs.length === 0 ? (
+            <Text style={styles.emptyText}>No fuel logs for this route yet.</Text>
+          ) : (
+            currentRouteFuelLogs.map((f) => (
+              <View key={f.id} style={styles.activityRow}>
+                <Text style={styles.activityText}>{f.liters} Liters</Text>
+                <Text style={styles.activityTime}>{f.station || 'Unknown station'} · {new Date(f.logged_date).toLocaleDateString()}</Text>
               </View>
             ))
           )}
         </View>
 
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Recent Fuel Logs</Text>
-          {fuelLogs.length === 0 ? (
-            <Text style={styles.emptyText}>No fuel logs yet.</Text>
-          ) : (
-            fuelLogs.map((f) => (
-              <View key={f.id} style={styles.activityRow}>
-                <Text style={styles.activityText}>{f.liters} L — TZS {formatCurrency(f.cost)}</Text>
-                <Text style={styles.activityTime}>{new Date(f.logged_at).toLocaleDateString()}</Text>
-              </View>
-            ))
-          )}
+        <View style={styles.driverStatsGrid}>
+          <View style={styles.driverStatCard}>
+            <Text style={styles.driverStatLabel}>TOTAL ROUTES</Text>
+            <Text style={styles.driverStatValue}>{totalRoutes}</Text>
+          </View>
+          <View style={styles.driverStatCard}>
+            <Text style={styles.driverStatLabel}>TOTAL DELIVERIES</Text>
+            <Text style={styles.driverStatValue}>{totalDeliveries}</Text>
+          </View>
+          <View style={styles.driverStatCard}>
+            <Text style={styles.driverStatLabel}>TOTAL MILEAGE</Text>
+            <Text style={styles.driverStatValue}>{totalMileage.toLocaleString()} km</Text>
+          </View>
+          <View style={styles.driverStatCard}>
+            <Text style={styles.driverStatLabel}>TOTAL FUEL USED</Text>
+            <Text style={styles.driverStatValue}>{totalFuelLiters.toLocaleString()} Liters</Text>
+          </View>
+          <View style={styles.driverStatCard}>
+            <Text style={styles.driverStatLabel}>FUEL CONSUMPTION</Text>
+            <Text style={styles.driverStatValue}>{avgKmPerLiter} km/l</Text>
+          </View>
+          <View style={styles.driverStatCard}>
+            <Text style={styles.driverStatLabel}>TOTAL FUEL COST</Text>
+            <Text style={styles.driverStatValue}>Tshs {formatCurrency(totalFuelCost)}</Text>
+          </View>
+          <View style={styles.driverStatCard}>
+            <Text style={styles.driverStatLabel}>TOTAL ALLOWANCE</Text>
+            <Text style={styles.driverStatValue}>Tshs {formatCurrency(totalAllowance)}</Text>
+          </View>
         </View>
       </ScrollView>
     );
@@ -238,7 +350,6 @@ export default function DashboardScreen() {
   // ---- FLEET-WIDE VIEW ----
   const activeCount = trucks.filter((t) => t.status === 'active').length;
   const driversOnDuty = trucks.filter((t) => t.status === 'active' && t.driver_id).length;
-  const myTruck = trucks.find((t) => t.driver_id === profile.driver_id && profile.driver_id != null) || null;
 
   const todayStr = new Date().toDateString();
   const routesToday = routes.filter((r) => new Date(r.created_at).toDateString() === todayStr);
@@ -249,38 +360,15 @@ export default function DashboardScreen() {
   const currentMonth = months[months.length - 1];
   const lastMonth = months[months.length - 2];
 
-  const tripsChartData = months.map((m) => ({
-    value: routes.filter((r) => {
-      const d = new Date(r.created_at);
-      return d.getFullYear() === m.year && d.getMonth() === m.month;
-    }).length,
-    label: m.label,
-    frontColor: colors.primary,
-  }));
-
-  const fuelChartData = months.map((m) => ({
-    value: fuelLogs
-      .filter((f) => {
-        const d = new Date(f.logged_at);
-        return d.getFullYear() === m.year && d.getMonth() === m.month;
-      })
-      .reduce((sum, f) => sum + Number(f.liters), 0),
-    label: m.label,
-  }));
-
-  const tripsThisMonth = tripsChartData[tripsChartData.length - 1].value;
-  const tripsLastMonth = tripsChartData[tripsChartData.length - 2].value;
-  const tripsTrendPct = tripsLastMonth > 0 ? (((tripsThisMonth - tripsLastMonth) / tripsLastMonth) * 100).toFixed(1) : null;
-
   const fuelCostThisMonth = fuelLogs
     .filter((f) => {
-      const d = new Date(f.logged_at);
+      const d = new Date(f.logged_date);
       return d.getFullYear() === currentMonth.year && d.getMonth() === currentMonth.month;
     })
     .reduce((sum, f) => sum + Number(f.cost), 0);
   const fuelCostLastMonth = fuelLogs
     .filter((f) => {
-      const d = new Date(f.logged_at);
+      const d = new Date(f.logged_date);
       return d.getFullYear() === lastMonth.year && d.getMonth() === lastMonth.month;
     })
     .reduce((sum, f) => sum + Number(f.cost), 0);
@@ -309,8 +397,6 @@ export default function DashboardScreen() {
       label: 'TRIPS TODAY',
       value: `${routesToday.length}`,
       sub: `${deliveredToday} delivered · ${inTransitToday} in transit`,
-      trend: tripsTrendPct != null ? `${tripsTrendPct}% vs last month` : undefined,
-      up: tripsTrendPct != null ? Number(tripsTrendPct) >= 0 : undefined,
     },
     showFinanceWidgets && {
       icon: Fuel,
@@ -329,7 +415,6 @@ export default function DashboardScreen() {
     { value: trucks.filter((t) => t.status === 'breakdown').length, color: colors.chart5, text: 'Breakdown', count: trucks.filter((t) => t.status === 'breakdown').length },
   ];
 
-  // ---- Alerts ----
   const alerts: Alert[] = [];
   if (showFleetWidgets) {
     trucks
@@ -353,55 +438,55 @@ export default function DashboardScreen() {
       );
   }
 
-  // ---- Recent activity ----
   const activity: ActivityItem[] = [
     ...routes.slice(0, 5).map((r) => ({
-      text: `New route created: ${r.client_name} (${r.origin} → ${r.destination})`,
+      text: `NEW ROUTE REGISTERED: ${r.client_name} 
+      (${r.origin} → ${r.destination})`,
       time: new Date(r.created_at),
     })),
+    ...routes
+      .filter((r) => r.acknowledged_at)
+      .slice(0, 5)
+      .map((r) => ({
+        text: `TRUCK: ${r.truck?.truck_code || 'truck'}-DRIVER: ${r.driver?.full_name || 'driver'} has acknowledged the route ${r.client_name} from ${r.origin} →  ${r.destination}`,
+        time: new Date(r.acknowledged_at as string),
+      })),
+    ...routes
+      .filter((r) => r.started_at)
+      .slice(0, 5)
+      .map((r) => ({
+        text: `TRUCK: ${r.truck?.truck_code || 'truck'}-DRIVER: ${r.driver?.full_name || 'driver'} has started the journey: ${r.client_name} from ${r.origin} → ${r.destination})`,
+        time: new Date(r.started_at as string),
+      })),
     ...(showFinanceWidgets
       ? fuelLogs.slice(0, 5).map((f) => ({
           text: `Fuel logged: ${f.liters} L for ${f.truck_code} — TZS ${formatCurrency(f.cost)}`,
-          time: new Date(f.logged_at),
+          time: new Date(f.logged_date),
         }))
       : []),
   ]
     .sort((a, b) => b.time.getTime() - a.time.getTime())
-    .slice(0, 5);
+    .slice(0, 10);
 
   return (
     <ScrollView
       style={styles.container}
-      contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
+      contentContainerStyle={{ padding: 10, paddingBottom: 10 }}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
     >
-      <Text style={styles.pageTitle}>Dashboard</Text>
+      <Text style={styles.pageTitle}>My Dashboard</Text>
+
+      {liveAlert && (
+        <View style={styles.liveAlertBanner}>
+          <Text style={styles.liveAlertText}>{liveAlert}</Text>
+        </View>
+      )}
 
       <View style={styles.statsGrid}>
         {statCards.map((c, i) => (
           <StatCard key={i} {...c} />
         ))}
       </View>
-
-      {showFinanceWidgets && (
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Fuel Consumption</Text>
-          <Text style={styles.cardSubtitle}>Last 7 months (litres)</Text>
-          <LineChart
-            data={fuelChartData}
-            width={chartWidth}
-            height={180}
-            color={colors.accent}
-            thickness={2}
-            curved
-            hideDataPoints
-            yAxisTextStyle={{ color: colors.mutedForeground, fontSize: 10 }}
-            xAxisLabelTextStyle={{ color: colors.mutedForeground, fontSize: 10 }}
-            noOfSections={4}
-            rulesColor={colors.border}
-          />
-        </View>
-      )}
 
       {showFleetWidgets && (
         <View style={styles.card}>
@@ -423,23 +508,6 @@ export default function DashboardScreen() {
       )}
 
       <View style={styles.card}>
-        <Text style={styles.cardTitle}>Monthly Trips</Text>
-        <Text style={styles.cardSubtitle}>Routes created — last 7 months</Text>
-        <BarChart
-          data={tripsChartData}
-          width={chartWidth}
-          height={180}
-          barWidth={20}
-          spacing={18}
-          roundedTop
-          yAxisTextStyle={{ color: colors.mutedForeground, fontSize: 10 }}
-          xAxisLabelTextStyle={{ color: colors.mutedForeground, fontSize: 10 }}
-          noOfSections={4}
-          rulesColor={colors.border}
-        />
-      </View>
-
-      <View style={styles.card}>
         <View style={styles.rowBetween}>
           <Text style={styles.cardTitle}>Recent Activity</Text>
           <View style={styles.liveBadge}>
@@ -447,12 +515,16 @@ export default function DashboardScreen() {
             <Text style={styles.liveText}>Live</Text>
           </View>
         </View>
-        {activity.length === 0 ? (
+        {activity.length === 0 ? ( 
           <Text style={styles.emptyText}>No recent activity.</Text>
         ) : (
           activity.map((a, i) => (
             <View key={i} style={styles.activityRow}>
-              <Text style={styles.activityText}>{a.text}</Text>
+              
+                <Text style={styles.activityText}>
+        {a.text}
+        </Text>
+              
               <Text style={styles.activityTime}>
                 {a.time.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
               </Text>
@@ -487,16 +559,25 @@ export default function DashboardScreen() {
   );
 }
 
-
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.background },
   infoText: { fontSize: 13, color: colors.foreground },
+  activityTextGreen: { color: colors.success },
+  liveAlertBanner: { backgroundColor: '#dbeafe', borderRadius: radius, padding: 12, marginBottom: 12 },
+  liveAlertText: { fontSize: 13, color: colors.info, fontWeight: '600' },
+  ackButton: { backgroundColor: colors.warning, borderRadius: radius, padding: 10, alignItems: 'center', marginTop: 8 },
+  startButton: { backgroundColor: colors.success, borderRadius: radius, padding: 10, alignItems: 'center', marginTop: 8 },
+  driverSmallSub: { fontSize: 11, color: colors.mutedForeground, marginTop: 2 },
+  driverStatsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12, justifyContent: 'center' },
+  driverStatCard: { width: (screenWidth - 16 * 2 - 8 * 2) / 3, backgroundColor: colors.card, borderRadius: radius, padding: 10 },
+  driverStatLabel: { fontSize: 9, color: colors.mutedForeground, fontWeight: '600', letterSpacing: 0.3 },
+  driverStatValue: { fontSize: 13, fontWeight: '600', color: colors.foreground, marginTop: 4 },
   button: { backgroundColor: colors.primary, borderRadius: radius, padding: 14, alignItems: 'center', marginBottom: 12 },
-buttonText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+  buttonText: { color: '#fff', fontWeight: '700', fontSize: 14 },
   errorText: { color: colors.destructive, textAlign: 'center' },
   emptyText: { fontSize: 12, color: colors.mutedForeground, marginTop: 8 },
-  pageTitle: { fontSize: 22, fontWeight: '700', color: colors.foreground, marginBottom: 16 },
+  pageTitle: { fontSize: 16, fontWeight: '700', color: colors.foreground, marginBottom: 16 },
   statsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginBottom: 12 },
   statCard: { width: (screenWidth - 16 * 2 - 12) / 2, backgroundColor: colors.card, borderRadius: radius, padding: 14 },
   statHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
@@ -507,7 +588,7 @@ buttonText: { color: '#fff', fontWeight: '700', fontSize: 14 },
   trendRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 8 },
   trendText: { fontSize: 11, fontWeight: '600' },
   card: { backgroundColor: colors.card, borderRadius: radius, padding: 16, marginBottom: 12 },
-  cardTitle: { fontSize: 15, fontWeight: '700', color: colors.foreground },
+  cardTitle: { fontSize: 15, fontWeight: '300', color: colors.foreground },
   cardSubtitle: { fontSize: 12, color: colors.mutedForeground, marginBottom: 12 },
   rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   donutRow: { flexDirection: 'row', alignItems: 'center', gap: 20 },

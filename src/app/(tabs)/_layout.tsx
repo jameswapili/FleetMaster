@@ -3,18 +3,17 @@ import CustomDrawerContent from '../../components/CustomDrawerContent';
 import Header from '../../components/Header';
 
 const screens: { name: string; title: string }[] = [
-  { name: 'dashboard', title: 'Dashboard' },
-  { name: 'settings', title: 'Settings' },
-  { name: 'employees', title: 'Employees' },
-  { name: 'drivers', title: 'Drivers' },
-  { name: 'fleet', title: 'Fleet & Trucks' },
-  { name: 'fuel', title: 'Fuel Management' },
-  { name: 'routes', title: 'Routes' },
-  { name: 'maintenance', title: 'Maintenance' },
-  { name: 'payroll', title: 'Salaries & Payroll' },
-  { name: 'reports', title: 'Reports' },
-  // 🆕 ADD THIS LINE
-  { name: 'truck_stats', title: 'Truck Statistics' },
+  { name: 'dashboard', title: 'FleetMaster' },
+  { name: 'settings', title: 'FleetMaster' },
+  { name: 'employees', title: 'FleetMaster' },
+  { name: 'drivers', title: 'FleetMaster' },
+  { name: 'fleet', title: 'FleetMaster' },
+  { name: 'fuel', title: 'FleetMaster' },
+  { name: 'routes', title: 'FleetMaster' },
+  { name: 'maintenance', title: 'FleetMaster' },
+  { name: 'payroll', title: 'FleetMaster' },
+  { name: 'reports', title: 'FleetMaster' },
+  { name: 'truck_stats', title: 'FleetMaster' },
 ];
 
 export default function DrawerLayout() {
